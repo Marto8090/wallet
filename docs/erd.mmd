@@ -1,0 +1,37 @@
+erDiagram
+    direction LR
+    USERS ||--o{ WALLETS : owns
+    WALLETS ||--o{ TRANSACTIONS : records
+
+    USERS {
+        BIGSERIAL id PK
+        TEXT email UK
+        TEXT display_name
+        CURRENCY_CODE base_currency_code
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    WALLETS {
+        BIGSERIAL id PK
+        BIGINT user_id FK
+        TEXT name
+        CURRENCY_CODE currency_code
+        TEXT wallet_type
+        DECIMAL initial_balance
+        BOOLEAN is_archived
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    TRANSACTIONS {
+        BIGSERIAL id PK
+        BIGINT wallet_id FK
+        TEXT transaction_type
+        DECIMAL amount
+        UUID transfer_reference
+        TEXT description
+        TIMESTAMPTZ occurred_at
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }

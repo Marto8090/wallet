@@ -12,8 +12,8 @@
     "typescript": "^6.0.2"
   },
   "scripts": {
-    "dev": "ts-node-dev --respawn src/app.ts",
+    "dev": "ts-node src/server.ts",
     "build": "tsc",
-    "start": "node dist/app.js"
+    "start": "node dist/server.js"
   }
 }

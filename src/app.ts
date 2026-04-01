@@ -1,29 +1,10 @@
 import express from "express";
-import { pool } from "./db";
+import healthRoutes from "./routes/health.routes";
 
 const app = express();
 
-app.get("/health", async (req, res) => {
-  try {
-    const result = await pool.query("SELECT NOW()");
-    res.json({
-      status: "ok",
-      db: "connected",
-      time: result.rows[0].now,
-    });
-  } catch (err) {
-    res.status(500).json({
-      status: "error",
-      db: "not connected",
-    });
-  }
-});
+app.use(express.json());
 
-app.listen(3000, async () => {
-  try {
-    await pool.query("SELECT NOW()");
-    console.log("DB connected");
-  } catch (err) {
-    console.error("DB failed", err);
-  }
-});
+app.use("/health", healthRoutes);
+
+export default app;
