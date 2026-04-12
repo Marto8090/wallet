@@ -4,12 +4,20 @@ import {
   calculateWalletBalance,
   createDepositTransaction,
   createWallet,
+  createWithdrawTransaction,
   CreatedWalletRecord,
   findWalletById,
   TransactionRecord,
 } from "../repositories/wallet.repository";
 
 type CreateDepositInput = {
+  userId: number;
+  walletId: unknown;
+  amount: unknown;
+  description: unknown;
+};
+
+type CreateWithdrawInput = {
   userId: number;
   walletId: unknown;
   amount: unknown;
@@ -226,6 +234,37 @@ export const createDeposit = async (
   }
 
   const transaction = await createDepositTransaction({
+    walletId,
+    amount,
+    description,
+  });
+
+  return toPublicTransaction(transaction);
+};
+
+export const createWithdraw = async (
+  input: CreateWithdrawInput
+): Promise<PublicTransaction> => {
+  if (!Number.isSafeInteger(input.userId) || input.userId <= 0) {
+    throw new HttpError(401, "Invalid or expired token");
+  }
+
+  const walletId = parseWalletId(input.walletId);
+  const amount = normalizeAmount(input.amount);
+  const description = normalizeDescription(input.description);
+  const wallet = await findWalletById(walletId);
+
+  if (!wallet || wallet.isArchived || wallet.userId !== input.userId) {
+    throw new HttpError(404, "Wallet not found");
+  }
+
+  const balance = await calculateWalletBalance(walletId);
+
+  if (Number(amount) > Number(balance.amount)) {
+    throw new HttpError(400, "Insufficient balance");
+  }
+
+  const transaction = await createWithdrawTransaction({
     walletId,
     amount,
     description,

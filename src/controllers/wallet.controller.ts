@@ -3,6 +3,7 @@ import { HttpError } from "../errors/http-error";
 import {
   createDeposit,
   createUserWallet,
+  createWithdraw,
   getWalletBalance,
 } from "../services/wallet.service";
 import { AuthenticatedRequest } from "../types/auth";
@@ -44,6 +45,25 @@ export const deposit = async (
   try {
     const userId = Number(req.user?.sub);
     const transaction = await createDeposit({
+      userId,
+      walletId: req.params.walletId,
+      amount: req.body?.amount,
+      description: req.body?.description,
+    });
+
+    res.status(201).json({ transaction });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+export const withdraw = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = Number(req.user?.sub);
+    const transaction = await createWithdraw({
       userId,
       walletId: req.params.walletId,
       amount: req.body?.amount,

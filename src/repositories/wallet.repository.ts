@@ -71,6 +71,12 @@ type CreateDepositInput = {
   description: string | null;
 };
 
+type CreateWithdrawInput = {
+  walletId: number;
+  amount: string;
+  description: string | null;
+};
+
 type CreateWalletInput = {
   userId: number;
   name: string;
@@ -179,6 +185,28 @@ export const createDepositTransaction = async (
     `
       INSERT INTO transactions (wallet_id, transaction_type, amount, description)
       VALUES ($1, 'deposit', $2, $3)
+      RETURNING
+        id,
+        wallet_id,
+        transaction_type,
+        amount,
+        description,
+        occurred_at,
+        created_at
+    `,
+    [input.walletId, input.amount, input.description]
+  );
+
+  return normalizeTransaction(result.rows[0]);
+};
+
+export const createWithdrawTransaction = async (
+  input: CreateWithdrawInput
+): Promise<TransactionRecord> => {
+  const result = await pool.query<RawTransactionRecord>(
+    `
+      INSERT INTO transactions (wallet_id, transaction_type, amount, description)
+      VALUES ($1, 'withdraw', $2, $3)
       RETURNING
         id,
         wallet_id,
