@@ -1,6 +1,10 @@
 import { Response } from "express";
 import { HttpError } from "../errors/http-error";
-import { createDeposit } from "../services/wallet.service";
+import {
+  createDeposit,
+  createUserWallet,
+  getWalletBalance,
+} from "../services/wallet.service";
 import { AuthenticatedRequest } from "../types/auth";
 
 const sendError = (res: Response, error: unknown): void => {
@@ -11,6 +15,26 @@ const sendError = (res: Response, error: unknown): void => {
 
   console.error(error);
   res.status(500).json({ error: "Internal server error" });
+};
+
+export const createWallet = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = Number(req.user?.sub);
+    const wallet = await createUserWallet({
+      userId,
+      name: req.body?.name,
+      currencyCode: req.body?.currencyCode,
+      walletType: req.body?.walletType,
+      initialBalance: req.body?.initialBalance,
+    });
+
+    res.status(201).json({ wallet });
+  } catch (error) {
+    sendError(res, error);
+  }
 };
 
 export const deposit = async (
@@ -27,6 +51,23 @@ export const deposit = async (
     });
 
     res.status(201).json({ transaction });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+export const getBalance = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = Number(req.user?.sub);
+    const balance = await getWalletBalance({
+      userId,
+      walletId: req.params.walletId,
+    });
+
+    res.status(200).json({ balance });
   } catch (error) {
     sendError(res, error);
   }

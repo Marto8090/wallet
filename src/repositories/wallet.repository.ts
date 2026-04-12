@@ -7,10 +7,32 @@ type RawWalletRecord = {
   is_archived: boolean;
 };
 
+type RawCreatedWalletRecord = {
+  id: string | number;
+  user_id: string | number;
+  name: string;
+  currency_code: string;
+  wallet_type: string;
+  initial_balance: string;
+  is_archived: boolean;
+  created_at: Date;
+};
+
 export type WalletRecord = {
   id: number;
   userId: number;
   isArchived: boolean;
+};
+
+export type CreatedWalletRecord = {
+  id: number;
+  userId: number;
+  name: string;
+  currencyCode: string;
+  walletType: string;
+  initialBalance: string;
+  isArchived: boolean;
+  createdAt: Date;
 };
 
 type RawTransactionRecord = {
@@ -23,6 +45,11 @@ type RawTransactionRecord = {
   created_at: Date;
 };
 
+type RawBalanceRecord = {
+  wallet_id: string | number;
+  amount: string;
+};
+
 export type TransactionRecord = {
   id: number;
   walletId: number;
@@ -33,16 +60,42 @@ export type TransactionRecord = {
   createdAt: Date;
 };
 
+export type BalanceRecord = {
+  walletId: number;
+  amount: string;
+};
+
 type CreateDepositInput = {
   walletId: number;
   amount: string;
   description: string | null;
 };
 
+type CreateWalletInput = {
+  userId: number;
+  name: string;
+  currencyCode: string;
+  walletType: string;
+  initialBalance: string;
+};
+
 const normalizeWallet = (row: RawWalletRecord): WalletRecord => ({
   id: Number(row.id),
   userId: Number(row.user_id),
   isArchived: row.is_archived,
+});
+
+const normalizeCreatedWallet = (
+  row: RawCreatedWalletRecord
+): CreatedWalletRecord => ({
+  id: Number(row.id),
+  userId: Number(row.user_id),
+  name: row.name,
+  currencyCode: row.currency_code,
+  walletType: row.wallet_type,
+  initialBalance: row.initial_balance,
+  isArchived: row.is_archived,
+  createdAt: row.created_at,
 });
 
 const normalizeTransaction = (
@@ -55,6 +108,11 @@ const normalizeTransaction = (
   description: row.description,
   occurredAt: row.occurred_at,
   createdAt: row.created_at,
+});
+
+const normalizeBalance = (row: RawBalanceRecord): BalanceRecord => ({
+  walletId: Number(row.wallet_id),
+  amount: row.amount,
 });
 
 const mapWallet = (result: QueryResult<RawWalletRecord>): WalletRecord | null => {
@@ -79,6 +137,41 @@ export const findWalletById = async (
   return mapWallet(result);
 };
 
+export const createWallet = async (
+  input: CreateWalletInput
+): Promise<CreatedWalletRecord> => {
+  const result = await pool.query<RawCreatedWalletRecord>(
+    `
+      INSERT INTO wallets (
+        user_id,
+        name,
+        currency_code,
+        wallet_type,
+        initial_balance
+      )
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING
+        id,
+        user_id,
+        name,
+        currency_code,
+        wallet_type,
+        initial_balance,
+        is_archived,
+        created_at
+    `,
+    [
+      input.userId,
+      input.name,
+      input.currencyCode,
+      input.walletType,
+      input.initialBalance,
+    ]
+  );
+
+  return normalizeCreatedWallet(result.rows[0]);
+};
+
 export const createDepositTransaction = async (
   input: CreateDepositInput
 ): Promise<TransactionRecord> => {
@@ -99,4 +192,39 @@ export const createDepositTransaction = async (
   );
 
   return normalizeTransaction(result.rows[0]);
+};
+
+export const calculateWalletBalance = async (
+  walletId: number
+): Promise<BalanceRecord> => {
+  const result = await pool.query<RawBalanceRecord>(
+    `
+      SELECT
+        w.id AS wallet_id,
+        TO_CHAR(
+          (
+            w.initial_balance
+            + COALESCE(
+              SUM(
+                CASE
+                  WHEN t.transaction_type IN ('deposit', 'transfer_in') THEN t.amount
+                  WHEN t.transaction_type IN ('withdraw', 'transfer_out') THEN -t.amount
+                  ELSE 0
+                END
+              ),
+              0
+            )
+          ),
+          'FM9999999999999999990.00'
+        ) AS amount
+      FROM wallets w
+      LEFT JOIN transactions t ON t.wallet_id = w.id
+      WHERE w.id = $1
+      GROUP BY w.id, w.initial_balance
+      LIMIT 1
+    `,
+    [walletId]
+  );
+
+  return normalizeBalance(result.rows[0]);
 };
