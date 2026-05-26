@@ -1,6 +1,6 @@
 import dotenv from "dotenv";
 
-dotenv.config();
+dotenv.config({ quiet: process.env.NODE_ENV === "test" });
 
 const readString = (key: string, fallback?: string): string => {
   const value = process.env[key] ?? fallback;
