@@ -1,6 +1,10 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { PoolClient } from "pg";
 import { HttpError } from "../errors/http-error";
+import {
+  completeIdempotencyKey,
+  createOrLockIdempotencyKey,
+} from "../repositories/idempotency.repository";
 import {
   calculateWalletBalanceForUpdate,
   createTransferLedgerEntry,
@@ -12,10 +16,18 @@ import {
 
 type CreateTransferInput = {
   userId: number;
+  idempotencyKey: unknown;
   fromWalletId: unknown;
   toWalletId: unknown;
   amount: unknown;
   description: unknown;
+};
+
+type NormalizedTransferInput = {
+  fromWalletId: number;
+  toWalletId: number;
+  amount: string;
+  description: string | null;
 };
 
 export type PublicTransfer = {
@@ -26,10 +38,20 @@ export type PublicTransfer = {
   description: string | null;
   transferOutTransactionId: number;
   transferInTransactionId: number;
-  occurredAt: Date;
+  occurredAt: string;
+};
+
+type TransferResponseBody = {
+  transfer: PublicTransfer;
+};
+
+export type TransferResponse = {
+  statusCode: number;
+  body: TransferResponseBody;
 };
 
 const DECIMAL_REGEX = /^\d+(\.\d{1,2})?$/;
+const TRANSFER_ENDPOINT = "POST /transfers";
 
 const parseWalletId = (walletId: unknown, fieldName: string): number => {
   if (typeof walletId === "number") {
@@ -87,6 +109,27 @@ const normalizeDescription = (description: unknown): string | null => {
   return trimmedDescription.length > 0 ? trimmedDescription : null;
 };
 
+const normalizeIdempotencyKey = (idempotencyKey: unknown): string => {
+  if (typeof idempotencyKey !== "string") {
+    throw new HttpError(400, "Idempotency-Key header is required");
+  }
+
+  const trimmedIdempotencyKey = idempotencyKey.trim();
+
+  if (!trimmedIdempotencyKey) {
+    throw new HttpError(400, "Idempotency-Key header is required");
+  }
+
+  if (trimmedIdempotencyKey.length > 255) {
+    throw new HttpError(
+      400,
+      "Idempotency-Key must be 255 characters or fewer"
+    );
+  }
+
+  return trimmedIdempotencyKey;
+};
+
 const decimalToCents = (amount: string): bigint => {
   const sign = amount.startsWith("-") ? -1n : 1n;
   const unsignedAmount = amount.replace("-", "");
@@ -95,6 +138,18 @@ const decimalToCents = (amount: string): bigint => {
 
   return sign * (BigInt(wholePart) * 100n + BigInt(centsText));
 };
+
+const createRequestHash = (input: NormalizedTransferInput): string =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        fromWalletId: input.fromWalletId,
+        toWalletId: input.toWalletId,
+        amount: input.amount,
+        description: input.description,
+      })
+    )
+    .digest("hex");
 
 const getLockedWallets = async (
   client: PoolClient,
@@ -126,16 +181,17 @@ const toPublicTransfer = (
   description: transferOut.description,
   transferOutTransactionId: transferOut.id,
   transferInTransactionId: transferIn.id,
-  occurredAt: transferOut.occurredAt,
+  occurredAt: transferOut.occurredAt.toISOString(),
 });
 
 export const createTransfer = async (
   input: CreateTransferInput
-): Promise<PublicTransfer> => {
+): Promise<TransferResponse> => {
   if (!Number.isSafeInteger(input.userId) || input.userId <= 0) {
     throw new HttpError(401, "Invalid or expired token");
   }
 
+  const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
   const fromWalletId = parseWalletId(input.fromWalletId, "fromWalletId");
   const toWalletId = parseWalletId(input.toWalletId, "toWalletId");
 
@@ -145,9 +201,41 @@ export const createTransfer = async (
 
   const amount = normalizeAmount(input.amount);
   const description = normalizeDescription(input.description);
+  const normalizedTransferInput = {
+    fromWalletId,
+    toWalletId,
+    amount,
+    description,
+  };
+  const requestHash = createRequestHash(normalizedTransferInput);
   const transferReference = randomUUID();
 
   return withTransaction(async (client) => {
+    const idempotency = await createOrLockIdempotencyKey(client, {
+      userId: input.userId,
+      endpoint: TRANSFER_ENDPOINT,
+      idempotencyKey,
+      requestHash,
+    });
+
+    if (idempotency.record.requestHash !== requestHash) {
+      throw new HttpError(
+        409,
+        "Idempotency-Key was already used with a different request"
+      );
+    }
+
+    if (
+      !idempotency.isNew &&
+      idempotency.record.status === "completed" &&
+      idempotency.record.responseStatusCode !== null
+    ) {
+      return {
+        statusCode: idempotency.record.responseStatusCode,
+        body: idempotency.record.responseBody as TransferResponseBody,
+      };
+    }
+
     const { fromWallet, toWallet } = await getLockedWallets(
       client,
       fromWalletId,
@@ -188,6 +276,19 @@ export const createTransfer = async (
       transferReference,
     });
 
-    return toPublicTransfer(transferOut, transferIn);
+    const response: TransferResponse = {
+      statusCode: 201,
+      body: {
+        transfer: toPublicTransfer(transferOut, transferIn),
+      },
+    };
+
+    await completeIdempotencyKey(client, {
+      id: idempotency.record.id,
+      responseStatusCode: response.statusCode,
+      responseBody: response.body,
+    });
+
+    return response;
   });
 };

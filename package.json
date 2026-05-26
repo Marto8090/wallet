@@ -24,7 +24,7 @@
     "dev": "ts-node src/server.ts",
     "build": "tsc",
     "test": "jest --runInBand",
-    "test:docker": "docker compose run --rm backend-test",
+    "test:docker": "docker compose run --rm --build backend-test",
     "start": "node dist/server.js"
   }
 }

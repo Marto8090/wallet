@@ -16,6 +16,29 @@ export const ensureSchema = async (): Promise<void> => {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS idempotency_keys (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id),
+      endpoint TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      status TEXT NOT NULL,
+      response_status_code INTEGER,
+      response_body JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT idempotency_keys_status_allowed
+        CHECK (status IN ('in_progress', 'completed')),
+      CONSTRAINT idempotency_keys_key_not_empty
+        CHECK (LENGTH(idempotency_key) > 0),
+      CONSTRAINT idempotency_keys_key_max_length
+        CHECK (LENGTH(idempotency_key) <= 255),
+      CONSTRAINT idempotency_keys_user_endpoint_key_unique
+        UNIQUE (user_id, endpoint, idempotency_key)
+    );
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS wallets (
       id BIGSERIAL PRIMARY KEY,
       user_id BIGINT NOT NULL REFERENCES users(id),

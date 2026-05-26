@@ -21,13 +21,14 @@ export const transfer = async (
     const userId = Number(req.user?.sub);
     const result = await createTransfer({
       userId,
+      idempotencyKey: req.header("Idempotency-Key"),
       fromWalletId: req.body?.fromWalletId,
       toWalletId: req.body?.toWalletId,
       amount: req.body?.amount,
       description: req.body?.description,
     });
 
-    res.status(201).json({ transfer: result });
+    res.status(result.statusCode).json(result.body);
   } catch (error) {
     sendError(res, error);
   }
