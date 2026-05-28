@@ -42,18 +42,85 @@ export const ensureSchema = async (): Promise<void> => {
     CREATE TABLE IF NOT EXISTS wallets (
       id BIGSERIAL PRIMARY KEY,
       user_id BIGINT NOT NULL REFERENCES users(id),
+      iban TEXT NOT NULL,
       name TEXT NOT NULL,
       currency_code CHAR(3) NOT NULL,
-      wallet_type TEXT NOT NULL,
       initial_balance NUMERIC(18,2) NOT NULL DEFAULT 0,
       is_archived BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT wallets_iban_unique
+        UNIQUE (iban),
+      CONSTRAINT wallets_iban_format
+        CHECK (iban ~ '^[A-Z0-9]{6}$'),
       CONSTRAINT wallets_currency_code_format
         CHECK (currency_code ~ '^[A-Z]{3}$'),
       CONSTRAINT wallets_initial_balance_non_negative
         CHECK (initial_balance >= 0)
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE wallets
+    DROP COLUMN IF EXISTS wallet_type;
+  `);
+
+  await pool.query(`
+    ALTER TABLE wallets
+    ADD COLUMN IF NOT EXISTS iban TEXT;
+  `);
+
+  await pool.query(`
+    UPDATE wallets
+    SET iban = UPPER(LPAD(id::TEXT, 6, '0'))
+    WHERE iban IS NULL;
+  `);
+
+  await pool.query(`
+    ALTER TABLE wallets
+    ALTER COLUMN iban SET NOT NULL;
+  `);
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'wallets_iban_unique'
+      ) THEN
+        ALTER TABLE wallets
+        ADD CONSTRAINT wallets_iban_unique UNIQUE (iban);
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'wallets_iban_format'
+      ) THEN
+        ALTER TABLE wallets
+        ADD CONSTRAINT wallets_iban_format
+        CHECK (iban ~ '^[A-Z0-9]{6}$');
+      END IF;
+    END $$;
+  `);
+
+  await pool.query(`
+    WITH duplicate_wallets AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (
+          PARTITION BY user_id, LOWER(name)
+          ORDER BY id
+        ) AS duplicate_index
+      FROM wallets
+    )
+    UPDATE wallets w
+    SET name = CONCAT(w.name, ' #', w.id)
+    FROM duplicate_wallets d
+    WHERE w.id = d.id
+      AND d.duplicate_index > 1;
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS wallets_user_name_unique
+    ON wallets (user_id, LOWER(name));
   `);
 
   await pool.query(`

@@ -22,8 +22,8 @@ export const transfer = async (
     const result = await createTransfer({
       userId,
       idempotencyKey: req.header("Idempotency-Key"),
-      fromWalletId: req.body?.fromWalletId,
-      toWalletId: req.body?.toWalletId,
+      fromWalletIban: req.body?.fromWalletIban,
+      toWalletIban: req.body?.toWalletIban,
       amount: req.body?.amount,
       description: req.body?.description,
     });

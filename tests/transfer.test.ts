@@ -6,6 +6,11 @@ type AuthContext = {
   token: string;
 };
 
+type WalletContext = {
+  id: number;
+  iban: string;
+};
+
 let emailSequence = 0;
 let idempotencyKeySequence = 0;
 
@@ -33,30 +38,34 @@ const registerUser = async (
 
 const createWallet = async (
   token: string,
-  currencyCode = "USD"
-): Promise<number> => {
+  currencyCode = "USD",
+  name = `${currencyCode} wallet`
+): Promise<WalletContext> => {
   const response = await request(app)
     .post("/wallets")
     .set("Authorization", `Bearer ${token}`)
     .send({
-      name: `${currencyCode} wallet`,
+      name,
       currencyCode,
-      walletType: "personal",
       initialBalance: "0.00",
     });
 
   expect(response.status).toBe(201);
+  expect(response.body.wallet.iban).toMatch(/^[A-Z0-9]{6}$/);
 
-  return response.body.wallet.id;
+  return {
+    id: response.body.wallet.id,
+    iban: response.body.wallet.iban,
+  };
 };
 
 const deposit = async (
   token: string,
-  walletId: number,
+  walletIban: string,
   amount: string
 ): Promise<void> => {
   const response = await request(app)
-    .post(`/wallets/${walletId}/deposits`)
+    .post(`/wallets/${walletIban}/deposits`)
     .set("Authorization", `Bearer ${token}`)
     .send({
       amount,
@@ -68,10 +77,10 @@ const deposit = async (
 
 const getBalance = async (
   token: string,
-  walletId: number
+  walletIban: string
 ): Promise<string> => {
   const response = await request(app)
-    .get(`/wallets/${walletId}/balance`)
+    .get(`/wallets/${walletIban}/balance`)
     .set("Authorization", `Bearer ${token}`);
 
   expect(response.status).toBe(200);
@@ -102,12 +111,14 @@ const createTransferSetup = async (
   sender: AuthContext;
   receiver: AuthContext;
   senderWalletId: number;
+  senderWalletIban: string;
   receiverWalletId: number;
+  receiverWalletIban: string;
 }> => {
   const sender = await registerUser("Sender");
   const receiver = await registerUser("Receiver");
-  const senderWalletId = await createWallet(sender.token, "USD");
-  const receiverWalletId = await createWallet(
+  const senderWallet = await createWallet(sender.token, "USD");
+  const receiverWallet = await createWallet(
     receiver.token,
     receiverCurrencyCode
   );
@@ -115,8 +126,10 @@ const createTransferSetup = async (
   return {
     sender,
     receiver,
-    senderWalletId,
-    receiverWalletId,
+    senderWalletId: senderWallet.id,
+    senderWalletIban: senderWallet.iban,
+    receiverWalletId: receiverWallet.id,
+    receiverWalletIban: receiverWallet.iban,
   };
 };
 
@@ -166,17 +179,58 @@ const getTransferLedgerCounts = async (): Promise<{
   return counts;
 };
 
+describe("POST /wallets", () => {
+  it("returns 400 when the same user reuses a wallet name", async () => {
+    const user = await registerUser("Wallet Owner");
+    await createWallet(user.token, "USD", "Everyday wallet");
+
+    const response = await request(app)
+      .post("/wallets")
+      .set("Authorization", `Bearer ${user.token}`)
+      .send({
+        name: "Everyday wallet",
+        currencyCode: "EUR",
+        initialBalance: "0.00",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe(
+      "You already have a wallet with this name"
+    );
+  });
+
+  it("allows different users to use the same wallet name", async () => {
+    const firstUser = await registerUser("First Wallet Owner");
+    const secondUser = await registerUser("Second Wallet Owner");
+
+    const firstWallet = await createWallet(
+      firstUser.token,
+      "USD",
+      "Shared wallet name"
+    );
+    const secondWallet = await createWallet(
+      secondUser.token,
+      "USD",
+      "Shared wallet name"
+    );
+
+    expect(firstWallet.iban).toMatch(/^[A-Z0-9]{6}$/);
+    expect(secondWallet.iban).toMatch(/^[A-Z0-9]{6}$/);
+    expect(firstWallet.iban).not.toBe(secondWallet.iban);
+  });
+});
+
 describe("POST /transfers", () => {
   it("creates paired ledger entries and updates calculated balances", async () => {
-    const { sender, receiver, senderWalletId, receiverWalletId } =
+    const { sender, receiver, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup();
-    await deposit(sender.token, senderWalletId, "100.00");
+    await deposit(sender.token, senderWalletIban, "100.00");
 
     const response = await postTransfer(
       sender.token,
       {
-        fromWalletId: senderWalletId,
-        toWalletId: receiverWalletId,
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
         amount: "25.00",
         description: "Dinner split",
       }
@@ -186,8 +240,8 @@ describe("POST /transfers", () => {
     expect(response.body.transfer).toEqual(
       expect.objectContaining({
         transferReference: expect.any(String),
-        fromWalletId: senderWalletId,
-        toWalletId: receiverWalletId,
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
         amount: "25.00",
         description: "Dinner split",
         transferOutTransactionId: expect.any(Number),
@@ -196,10 +250,10 @@ describe("POST /transfers", () => {
       })
     );
 
-    await expect(getBalance(sender.token, senderWalletId)).resolves.toBe(
+    await expect(getBalance(sender.token, senderWalletIban)).resolves.toBe(
       "75.00"
     );
-    await expect(getBalance(receiver.token, receiverWalletId)).resolves.toBe(
+    await expect(getBalance(receiver.token, receiverWalletIban)).resolves.toBe(
       "25.00"
     );
 
@@ -236,8 +290,8 @@ describe("POST /transfers", () => {
 
   it("returns 401 when authorization is missing or invalid", async () => {
     const missingAuthResponse = await request(app).post("/transfers").send({
-      fromWalletId: 1,
-      toWalletId: 2,
+      fromWalletIban: 1,
+      toWalletIban: 2,
       amount: "25.00",
     });
 
@@ -247,8 +301,8 @@ describe("POST /transfers", () => {
       .post("/transfers")
       .set("Authorization", "Bearer invalid-token")
       .send({
-        fromWalletId: 1,
-        toWalletId: 2,
+        fromWalletIban: 1,
+        toWalletIban: 2,
         amount: "25.00",
       });
 
@@ -256,16 +310,16 @@ describe("POST /transfers", () => {
   });
 
   it("returns 400 when the Idempotency-Key header is missing", async () => {
-    const { sender, senderWalletId, receiverWalletId } =
+    const { sender, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup();
-    await deposit(sender.token, senderWalletId, "100.00");
+    await deposit(sender.token, senderWalletIban, "100.00");
 
     const response = await request(app)
       .post("/transfers")
       .set("Authorization", `Bearer ${sender.token}`)
       .send({
-        fromWalletId: senderWalletId,
-        toWalletId: receiverWalletId,
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
         amount: "25.00",
       });
 
@@ -274,13 +328,13 @@ describe("POST /transfers", () => {
   });
 
   it("replays the original response when the same key is retried with the same body", async () => {
-    const { sender, receiver, senderWalletId, receiverWalletId } =
+    const { sender, receiver, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup();
-    await deposit(sender.token, senderWalletId, "100.00");
+    await deposit(sender.token, senderWalletIban, "100.00");
 
     const transferBody = {
-      fromWalletId: senderWalletId,
-      toWalletId: receiverWalletId,
+      fromWalletIban: senderWalletIban,
+      toWalletIban: receiverWalletIban,
       amount: "25.00",
       description: "Dinner split",
     };
@@ -300,10 +354,10 @@ describe("POST /transfers", () => {
     expect(firstResponse.status).toBe(201);
     expect(retryResponse.status).toBe(201);
     expect(retryResponse.body).toEqual(firstResponse.body);
-    await expect(getBalance(sender.token, senderWalletId)).resolves.toBe(
+    await expect(getBalance(sender.token, senderWalletIban)).resolves.toBe(
       "75.00"
     );
-    await expect(getBalance(receiver.token, receiverWalletId)).resolves.toBe(
+    await expect(getBalance(receiver.token, receiverWalletIban)).resolves.toBe(
       "25.00"
     );
     await expect(getTransferLedgerCounts()).resolves.toEqual({
@@ -314,16 +368,16 @@ describe("POST /transfers", () => {
   });
 
   it("returns 409 when the same key is reused with a different request body", async () => {
-    const { sender, receiver, senderWalletId, receiverWalletId } =
+    const { sender, receiver, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup();
-    await deposit(sender.token, senderWalletId, "100.00");
+    await deposit(sender.token, senderWalletIban, "100.00");
 
     const idempotencyKey = createIdempotencyKey();
     const firstResponse = await postTransfer(
       sender.token,
       {
-        fromWalletId: senderWalletId,
-        toWalletId: receiverWalletId,
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
         amount: "25.00",
       },
       idempotencyKey
@@ -331,8 +385,8 @@ describe("POST /transfers", () => {
     const conflictResponse = await postTransfer(
       sender.token,
       {
-        fromWalletId: senderWalletId,
-        toWalletId: receiverWalletId,
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
         amount: "30.00",
       },
       idempotencyKey
@@ -343,10 +397,10 @@ describe("POST /transfers", () => {
     expect(conflictResponse.body.error).toBe(
       "Idempotency-Key was already used with a different request"
     );
-    await expect(getBalance(sender.token, senderWalletId)).resolves.toBe(
+    await expect(getBalance(sender.token, senderWalletIban)).resolves.toBe(
       "75.00"
     );
-    await expect(getBalance(receiver.token, receiverWalletId)).resolves.toBe(
+    await expect(getBalance(receiver.token, receiverWalletIban)).resolves.toBe(
       "25.00"
     );
     await expect(getTransferLedgerCounts()).resolves.toEqual({
@@ -358,27 +412,27 @@ describe("POST /transfers", () => {
 
   it("returns 400 when source and destination wallets are the same", async () => {
     const sender = await registerUser("Sender");
-    const walletId = await createWallet(sender.token);
+    const wallet = await createWallet(sender.token);
 
     const response = await postTransfer(sender.token, {
-      fromWalletId: walletId,
-      toWalletId: walletId,
+      fromWalletIban: wallet.iban,
+      toWalletIban: wallet.iban,
       amount: "25.00",
     });
 
     expect(response.status).toBe(400);
     expect(response.body.error).toBe(
-      "fromWalletId and toWalletId must be different"
+      "fromWalletIban and toWalletIban must be different"
     );
   });
 
   it("returns 400 when the sender has insufficient balance", async () => {
-    const { sender, senderWalletId, receiverWalletId } =
+    const { sender, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup();
 
     const response = await postTransfer(sender.token, {
-      fromWalletId: senderWalletId,
-      toWalletId: receiverWalletId,
+      fromWalletIban: senderWalletIban,
+      toWalletIban: receiverWalletIban,
       amount: "25.00",
     });
 
@@ -392,12 +446,12 @@ describe("POST /transfers", () => {
   });
 
   it("does not store the idempotency key when a transfer fails", async () => {
-    const { sender, receiver, senderWalletId, receiverWalletId } =
+    const { sender, receiver, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup();
     const idempotencyKey = createIdempotencyKey();
     const transferBody = {
-      fromWalletId: senderWalletId,
-      toWalletId: receiverWalletId,
+      fromWalletIban: senderWalletIban,
+      toWalletIban: receiverWalletIban,
       amount: "25.00",
     };
 
@@ -406,7 +460,7 @@ describe("POST /transfers", () => {
       transferBody,
       idempotencyKey
     );
-    await deposit(sender.token, senderWalletId, "100.00");
+    await deposit(sender.token, senderWalletIban, "100.00");
     const retryResponse = await postTransfer(
       sender.token,
       transferBody,
@@ -416,10 +470,10 @@ describe("POST /transfers", () => {
     expect(failedResponse.status).toBe(400);
     expect(failedResponse.body.error).toBe("Insufficient balance");
     expect(retryResponse.status).toBe(201);
-    await expect(getBalance(sender.token, senderWalletId)).resolves.toBe(
+    await expect(getBalance(sender.token, senderWalletIban)).resolves.toBe(
       "75.00"
     );
-    await expect(getBalance(receiver.token, receiverWalletId)).resolves.toBe(
+    await expect(getBalance(receiver.token, receiverWalletIban)).resolves.toBe(
       "25.00"
     );
     await expect(getTransferLedgerCounts()).resolves.toEqual({
@@ -430,13 +484,13 @@ describe("POST /transfers", () => {
   });
 
   it("returns 404 when the sender wallet is not owned by the authenticated user", async () => {
-    const { sender, receiver, senderWalletId, receiverWalletId } =
+    const { sender, receiver, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup();
-    await deposit(sender.token, senderWalletId, "100.00");
+    await deposit(sender.token, senderWalletIban, "100.00");
 
     const response = await postTransfer(receiver.token, {
-      fromWalletId: senderWalletId,
-      toWalletId: receiverWalletId,
+      fromWalletIban: senderWalletIban,
+      toWalletIban: receiverWalletIban,
       amount: "25.00",
     });
 
@@ -446,12 +500,12 @@ describe("POST /transfers", () => {
 
   it("returns 404 when the receiver wallet does not exist", async () => {
     const sender = await registerUser("Sender");
-    const senderWalletId = await createWallet(sender.token);
-    await deposit(sender.token, senderWalletId, "100.00");
+    const senderWallet = await createWallet(sender.token);
+    await deposit(sender.token, senderWallet.iban, "100.00");
 
     const response = await postTransfer(sender.token, {
-      fromWalletId: senderWalletId,
-      toWalletId: 999999,
+      fromWalletIban: senderWallet.iban,
+      toWalletIban: "ZZZZZZ",
       amount: "25.00",
     });
 
@@ -460,13 +514,13 @@ describe("POST /transfers", () => {
   });
 
   it("returns 400 when wallet currencies do not match", async () => {
-    const { sender, senderWalletId, receiverWalletId } =
+    const { sender, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup("EUR");
-    await deposit(sender.token, senderWalletId, "100.00");
+    await deposit(sender.token, senderWalletIban, "100.00");
 
     const response = await postTransfer(sender.token, {
-      fromWalletId: senderWalletId,
-      toWalletId: receiverWalletId,
+      fromWalletIban: senderWalletIban,
+      toWalletIban: receiverWalletIban,
       amount: "25.00",
     });
 
@@ -475,13 +529,13 @@ describe("POST /transfers", () => {
   });
 
   it("prevents concurrent transfers from overspending the sender wallet", async () => {
-    const { sender, receiver, senderWalletId, receiverWalletId } =
+    const { sender, receiver, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup();
-    await deposit(sender.token, senderWalletId, "100.00");
+    await deposit(sender.token, senderWalletIban, "100.00");
 
     const transferBody = {
-      fromWalletId: senderWalletId,
-      toWalletId: receiverWalletId,
+      fromWalletIban: senderWalletIban,
+      toWalletIban: receiverWalletIban,
       amount: "80.00",
       description: "Concurrent transfer",
     };
@@ -500,10 +554,10 @@ describe("POST /transfers", () => {
 
     expect(statuses).toEqual([201, 400]);
     expect(failedResponse?.body.error).toBe("Insufficient balance");
-    await expect(getBalance(sender.token, senderWalletId)).resolves.toBe(
+    await expect(getBalance(sender.token, senderWalletIban)).resolves.toBe(
       "20.00"
     );
-    await expect(getBalance(receiver.token, receiverWalletId)).resolves.toBe(
+    await expect(getBalance(receiver.token, receiverWalletIban)).resolves.toBe(
       "80.00"
     );
     await expect(getTransferLedgerCounts()).resolves.toEqual({
@@ -514,13 +568,13 @@ describe("POST /transfers", () => {
   });
 
   it("replays concurrent duplicate requests with the same idempotency key", async () => {
-    const { sender, receiver, senderWalletId, receiverWalletId } =
+    const { sender, receiver, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup();
-    await deposit(sender.token, senderWalletId, "100.00");
+    await deposit(sender.token, senderWalletIban, "100.00");
 
     const transferBody = {
-      fromWalletId: senderWalletId,
-      toWalletId: receiverWalletId,
+      fromWalletIban: senderWalletIban,
+      toWalletIban: receiverWalletIban,
       amount: "80.00",
       description: "Concurrent duplicate",
     };
@@ -534,10 +588,10 @@ describe("POST /transfers", () => {
     expect(firstResponse.status).toBe(201);
     expect(secondResponse.status).toBe(201);
     expect(secondResponse.body).toEqual(firstResponse.body);
-    await expect(getBalance(sender.token, senderWalletId)).resolves.toBe(
+    await expect(getBalance(sender.token, senderWalletIban)).resolves.toBe(
       "20.00"
     );
-    await expect(getBalance(receiver.token, receiverWalletId)).resolves.toBe(
+    await expect(getBalance(receiver.token, receiverWalletIban)).resolves.toBe(
       "80.00"
     );
     await expect(getTransferLedgerCounts()).resolves.toEqual({
@@ -548,14 +602,14 @@ describe("POST /transfers", () => {
   });
 
   it("returns 404 when the sender wallet is archived", async () => {
-    const { sender, senderWalletId, receiverWalletId } =
+    const { sender, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup();
-    await deposit(sender.token, senderWalletId, "100.00");
+    await deposit(sender.token, senderWalletIban, "100.00");
     await archiveWallet(senderWalletId);
 
     const response = await postTransfer(sender.token, {
-      fromWalletId: senderWalletId,
-      toWalletId: receiverWalletId,
+      fromWalletIban: senderWalletIban,
+      toWalletIban: receiverWalletIban,
       amount: "25.00",
     });
 
@@ -569,14 +623,14 @@ describe("POST /transfers", () => {
   });
 
   it("returns 404 when the receiver wallet is archived", async () => {
-    const { sender, senderWalletId, receiverWalletId } =
+    const { sender, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
       await createTransferSetup();
-    await deposit(sender.token, senderWalletId, "100.00");
+    await deposit(sender.token, senderWalletIban, "100.00");
     await archiveWallet(receiverWalletId);
 
     const response = await postTransfer(sender.token, {
-      fromWalletId: senderWalletId,
-      toWalletId: receiverWalletId,
+      fromWalletIban: senderWalletIban,
+      toWalletIban: receiverWalletIban,
       amount: "25.00",
     });
 

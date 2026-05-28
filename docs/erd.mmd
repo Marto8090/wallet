@@ -16,9 +16,9 @@ erDiagram
     WALLETS {
         BIGSERIAL id PK
         BIGINT user_id FK
+        TEXT iban UK
         TEXT name
         CURRENCY_CODE currency_code
-        TEXT wallet_type
         DECIMAL initial_balance
         BOOLEAN is_archived
         TIMESTAMPTZ created_at

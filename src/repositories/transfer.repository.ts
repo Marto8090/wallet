@@ -3,6 +3,7 @@ import { pool } from "../db";
 
 export type LockedWalletRecord = {
   id: number;
+  iban: string;
   userId: number;
   currencyCode: string;
   isArchived: boolean;
@@ -21,6 +22,7 @@ export type TransferLedgerEntryRecord = {
 
 type RawLockedWalletRecord = {
   id: string | number;
+  iban: string;
   user_id: string | number;
   currency_code: string;
   is_archived: boolean;
@@ -53,6 +55,7 @@ const normalizeLockedWallet = (
   row: RawLockedWalletRecord
 ): LockedWalletRecord => ({
   id: Number(row.id),
+  iban: row.iban,
   userId: Number(row.user_id),
   currencyCode: row.currency_code,
   isArchived: row.is_archived,
@@ -96,12 +99,31 @@ export const lockWalletById = async (
 ): Promise<LockedWalletRecord | null> => {
   const result = await client.query<RawLockedWalletRecord>(
     `
-      SELECT id, user_id, currency_code, is_archived
+      SELECT id, iban, user_id, currency_code, is_archived
       FROM wallets
       WHERE id = $1
       FOR UPDATE
     `,
     [walletId]
+  );
+
+  const row = result.rows[0];
+
+  return row ? normalizeLockedWallet(row) : null;
+};
+
+export const lockWalletByIban = async (
+  client: PoolClient,
+  walletIban: string
+): Promise<LockedWalletRecord | null> => {
+  const result = await client.query<RawLockedWalletRecord>(
+    `
+      SELECT id, iban, user_id, currency_code, is_archived
+      FROM wallets
+      WHERE iban = $1
+      FOR UPDATE
+    `,
+    [walletIban]
   );
 
   const row = result.rows[0];

@@ -5,6 +5,7 @@ import {
   createUserWallet,
   createWithdraw,
   getWalletBalance,
+  listUserWallets,
 } from "../services/wallet.service";
 import { AuthenticatedRequest } from "../types/auth";
 
@@ -28,11 +29,24 @@ export const createWallet = async (
       userId,
       name: req.body?.name,
       currencyCode: req.body?.currencyCode,
-      walletType: req.body?.walletType,
       initialBalance: req.body?.initialBalance,
     });
 
     res.status(201).json({ wallet });
+  } catch (error) {
+    sendError(res, error);
+  }
+};
+
+export const listWallets = async (
+  req: AuthenticatedRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const userId = Number(req.user?.sub);
+    const wallets = await listUserWallets({ userId });
+
+    res.status(200).json({ wallets });
   } catch (error) {
     sendError(res, error);
   }
@@ -46,7 +60,7 @@ export const deposit = async (
     const userId = Number(req.user?.sub);
     const transaction = await createDeposit({
       userId,
-      walletId: req.params.walletId,
+      walletIban: req.params.walletIban,
       amount: req.body?.amount,
       description: req.body?.description,
     });
@@ -65,7 +79,7 @@ export const withdraw = async (
     const userId = Number(req.user?.sub);
     const transaction = await createWithdraw({
       userId,
-      walletId: req.params.walletId,
+      walletIban: req.params.walletIban,
       amount: req.body?.amount,
       description: req.body?.description,
     });
@@ -84,7 +98,7 @@ export const getBalance = async (
     const userId = Number(req.user?.sub);
     const balance = await getWalletBalance({
       userId,
-      walletId: req.params.walletId,
+      walletIban: req.params.walletIban,
     });
 
     res.status(200).json({ balance });

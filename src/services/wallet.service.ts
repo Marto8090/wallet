@@ -1,3 +1,4 @@
+import { randomInt } from "crypto";
 import { HttpError } from "../errors/http-error";
 import {
   BalanceRecord,
@@ -6,20 +7,23 @@ import {
   createWallet,
   createWithdrawTransaction,
   CreatedWalletRecord,
-  findWalletById,
+  findWalletByIban,
+  findWalletByUserIdAndName,
+  listWalletsByUserId,
   TransactionRecord,
+  WalletSummaryRecord,
 } from "../repositories/wallet.repository";
 
 type CreateDepositInput = {
   userId: number;
-  walletId: unknown;
+  walletIban: unknown;
   amount: unknown;
   description: unknown;
 };
 
 type CreateWithdrawInput = {
   userId: number;
-  walletId: unknown;
+  walletIban: unknown;
   amount: unknown;
   description: unknown;
 };
@@ -28,19 +32,22 @@ type CreateWalletInput = {
   userId: number;
   name: unknown;
   currencyCode: unknown;
-  walletType: unknown;
   initialBalance: unknown;
 };
 
 export type PublicWallet = {
   id: number;
   userId: number;
+  iban: string;
   name: string;
   currencyCode: string;
-  walletType: string;
   initialBalance: string;
   isArchived: boolean;
   createdAt: Date;
+};
+
+export type PublicWalletSummary = PublicWallet & {
+  balance: string;
 };
 
 export type PublicTransaction = {
@@ -55,21 +62,33 @@ export type PublicTransaction = {
 
 export type PublicBalance = {
   walletId: number;
+  walletIban: string;
   amount: string;
 };
 
 const DECIMAL_REGEX = /^\d+(\.\d{1,2})?$/;
 const CURRENCY_CODE_REGEX = /^[A-Z]{3}$/;
+const WALLET_IBAN_REGEX = /^[A-Z0-9]{6}$/;
+const ALLOWED_WALLET_CURRENCY_CODES = ["USD", "EUR", "GBP"] as const;
+const WALLET_IBAN_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const WALLET_IBAN_GENERATION_ATTEMPTS = 10;
 
 const toPublicWallet = (wallet: CreatedWalletRecord): PublicWallet => ({
   id: wallet.id,
   userId: wallet.userId,
+  iban: wallet.iban,
   name: wallet.name,
   currencyCode: wallet.currencyCode,
-  walletType: wallet.walletType,
   initialBalance: wallet.initialBalance,
   isArchived: wallet.isArchived,
   createdAt: wallet.createdAt,
+});
+
+const toPublicWalletSummary = (
+  wallet: WalletSummaryRecord
+): PublicWalletSummary => ({
+  ...toPublicWallet(wallet),
+  balance: wallet.balance,
 });
 
 const toPublicTransaction = (
@@ -86,21 +105,51 @@ const toPublicTransaction = (
 
 const toPublicBalance = (balance: BalanceRecord): PublicBalance => ({
   walletId: balance.walletId,
+  walletIban: balance.walletIban,
   amount: balance.amount,
 });
 
-const parseWalletId = (walletId: unknown): number => {
-  if (typeof walletId !== "string" || !/^\d+$/.test(walletId)) {
-    throw new HttpError(400, "A valid walletId is required");
+const createWalletIbanCandidate = (): string => {
+  let iban = "";
+
+  for (let index = 0; index < 6; index += 1) {
+    iban += WALLET_IBAN_CHARACTERS[randomInt(WALLET_IBAN_CHARACTERS.length)];
   }
 
-  const parsedWalletId = Number(walletId);
+  return iban;
+};
 
-  if (!Number.isSafeInteger(parsedWalletId) || parsedWalletId <= 0) {
-    throw new HttpError(400, "A valid walletId is required");
+const isUniqueViolation = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  (error as { code?: unknown }).code === "23505";
+
+const getUniqueViolationConstraint = (error: unknown): string | null => {
+  if (!isUniqueViolation(error)) {
+    return null;
   }
 
-  return parsedWalletId;
+  const constraint = (error as { constraint?: unknown }).constraint;
+
+  return typeof constraint === "string" ? constraint : null;
+};
+
+const parseWalletIban = (walletIban: unknown): string => {
+  if (typeof walletIban !== "string") {
+    throw new HttpError(400, "A valid walletIban is required");
+  }
+
+  const normalizedWalletIban = walletIban.trim().toUpperCase();
+
+  if (!WALLET_IBAN_REGEX.test(normalizedWalletIban)) {
+    throw new HttpError(
+      400,
+      "walletIban must be 6 letters and numbers"
+    );
+  }
+
+  return normalizedWalletIban;
 };
 
 const normalizeRequiredString = (
@@ -128,6 +177,12 @@ const normalizeCurrencyCode = (currencyCode: unknown): string => {
 
   if (!CURRENCY_CODE_REGEX.test(normalizedCurrencyCode)) {
     throw new HttpError(400, "Currency code must be a 3-letter ISO code");
+  }
+
+  if (!ALLOWED_WALLET_CURRENCY_CODES.includes(
+    normalizedCurrencyCode as (typeof ALLOWED_WALLET_CURRENCY_CODES)[number]
+  )) {
+    throw new HttpError(400, "Currency code must be one of USD, EUR, or GBP");
   }
 
   return normalizedCurrencyCode;
@@ -203,18 +258,58 @@ export const createUserWallet = async (
 
   const name = normalizeRequiredString(input.name, "Name");
   const currencyCode = normalizeCurrencyCode(input.currencyCode);
-  const walletType = normalizeRequiredString(input.walletType, "Wallet type");
   const initialBalance = normalizeInitialBalance(input.initialBalance);
+  const existingWalletWithName = await findWalletByUserIdAndName(
+    input.userId,
+    name
+  );
 
-  const wallet = await createWallet({
-    userId: input.userId,
-    name,
-    currencyCode,
-    walletType,
-    initialBalance,
-  });
+  if (existingWalletWithName) {
+    throw new HttpError(400, "You already have a wallet with this name");
+  }
+
+  let wallet: CreatedWalletRecord | null = null;
+
+  for (let attempt = 0; attempt < WALLET_IBAN_GENERATION_ATTEMPTS; attempt += 1) {
+    try {
+      wallet = await createWallet({
+        userId: input.userId,
+        iban: createWalletIbanCandidate(),
+        name,
+        currencyCode,
+        initialBalance,
+      });
+      break;
+    } catch (error) {
+      const uniqueConstraint = getUniqueViolationConstraint(error);
+
+      if (uniqueConstraint === "wallets_user_name_unique") {
+        throw new HttpError(400, "You already have a wallet with this name");
+      }
+
+      if (uniqueConstraint !== "wallets_iban_unique") {
+        throw error;
+      }
+    }
+  }
+
+  if (!wallet) {
+    throw new HttpError(500, "Could not generate a unique wallet IBAN");
+  }
 
   return toPublicWallet(wallet);
+};
+
+export const listUserWallets = async (input: {
+  userId: number;
+}): Promise<PublicWalletSummary[]> => {
+  if (!Number.isSafeInteger(input.userId) || input.userId <= 0) {
+    throw new HttpError(401, "Invalid or expired token");
+  }
+
+  const wallets = await listWalletsByUserId(input.userId);
+
+  return wallets.map(toPublicWalletSummary);
 };
 
 export const createDeposit = async (
@@ -224,17 +319,17 @@ export const createDeposit = async (
     throw new HttpError(401, "Invalid or expired token");
   }
 
-  const walletId = parseWalletId(input.walletId);
+  const walletIban = parseWalletIban(input.walletIban);
   const amount = normalizeAmount(input.amount);
   const description = normalizeDescription(input.description);
-  const wallet = await findWalletById(walletId);
+  const wallet = await findWalletByIban(walletIban);
 
   if (!wallet || wallet.isArchived || wallet.userId !== input.userId) {
     throw new HttpError(404, "Wallet not found");
   }
 
   const transaction = await createDepositTransaction({
-    walletId,
+    walletId: wallet.id,
     amount,
     description,
   });
@@ -249,23 +344,23 @@ export const createWithdraw = async (
     throw new HttpError(401, "Invalid or expired token");
   }
 
-  const walletId = parseWalletId(input.walletId);
+  const walletIban = parseWalletIban(input.walletIban);
   const amount = normalizeAmount(input.amount);
   const description = normalizeDescription(input.description);
-  const wallet = await findWalletById(walletId);
+  const wallet = await findWalletByIban(walletIban);
 
   if (!wallet || wallet.isArchived || wallet.userId !== input.userId) {
     throw new HttpError(404, "Wallet not found");
   }
 
-  const balance = await calculateWalletBalance(walletId);
+  const balance = await calculateWalletBalance(wallet.id);
 
   if (Number(amount) > Number(balance.amount)) {
     throw new HttpError(400, "Insufficient balance");
   }
 
   const transaction = await createWithdrawTransaction({
-    walletId,
+    walletId: wallet.id,
     amount,
     description,
   });
@@ -275,20 +370,20 @@ export const createWithdraw = async (
 
 export const getWalletBalance = async (input: {
   userId: number;
-  walletId: unknown;
+  walletIban: unknown;
 }): Promise<PublicBalance> => {
   if (!Number.isSafeInteger(input.userId) || input.userId <= 0) {
     throw new HttpError(401, "Invalid or expired token");
   }
 
-  const walletId = parseWalletId(input.walletId);
-  const wallet = await findWalletById(walletId);
+  const walletIban = parseWalletIban(input.walletIban);
+  const wallet = await findWalletByIban(walletIban);
 
   if (!wallet || wallet.isArchived || wallet.userId !== input.userId) {
     throw new HttpError(404, "Wallet not found");
   }
 
-  const balance = await calculateWalletBalance(walletId);
+  const balance = await calculateWalletBalance(wallet.id);
 
   return toPublicBalance(balance);
 };

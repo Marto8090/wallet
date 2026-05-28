@@ -8,7 +8,7 @@ import {
 import {
   calculateWalletBalanceForUpdate,
   createTransferLedgerEntry,
-  lockWalletById,
+  lockWalletByIban,
   LockedWalletRecord,
   TransferLedgerEntryRecord,
   withTransaction,
@@ -17,23 +17,23 @@ import {
 type CreateTransferInput = {
   userId: number;
   idempotencyKey: unknown;
-  fromWalletId: unknown;
-  toWalletId: unknown;
+  fromWalletIban: unknown;
+  toWalletIban: unknown;
   amount: unknown;
   description: unknown;
 };
 
 type NormalizedTransferInput = {
-  fromWalletId: number;
-  toWalletId: number;
+  fromWalletIban: string;
+  toWalletIban: string;
   amount: string;
   description: string | null;
 };
 
 export type PublicTransfer = {
   transferReference: string;
-  fromWalletId: number;
-  toWalletId: number;
+  fromWalletIban: string;
+  toWalletIban: string;
   amount: string;
   description: string | null;
   transferOutTransactionId: number;
@@ -51,28 +51,21 @@ export type TransferResponse = {
 };
 
 const DECIMAL_REGEX = /^\d+(\.\d{1,2})?$/;
+const WALLET_IBAN_REGEX = /^[A-Z0-9]{6}$/;
 const TRANSFER_ENDPOINT = "POST /transfers";
 
-const parseWalletId = (walletId: unknown, fieldName: string): number => {
-  if (typeof walletId === "number") {
-    if (!Number.isSafeInteger(walletId) || walletId <= 0) {
-      throw new HttpError(400, `${fieldName} must be a positive integer`);
-    }
-
-    return walletId;
+const parseWalletIban = (walletIban: unknown, fieldName: string): string => {
+  if (typeof walletIban !== "string") {
+    throw new HttpError(400, `${fieldName} must be 6 letters and numbers`);
   }
 
-  if (typeof walletId !== "string" || !/^\d+$/.test(walletId)) {
-    throw new HttpError(400, `${fieldName} must be a positive integer`);
+  const normalizedWalletIban = walletIban.trim().toUpperCase();
+
+  if (!WALLET_IBAN_REGEX.test(normalizedWalletIban)) {
+    throw new HttpError(400, `${fieldName} must be 6 letters and numbers`);
   }
 
-  const parsedWalletId = Number(walletId);
-
-  if (!Number.isSafeInteger(parsedWalletId) || parsedWalletId <= 0) {
-    throw new HttpError(400, `${fieldName} must be a positive integer`);
-  }
-
-  return parsedWalletId;
+  return normalizedWalletIban;
 };
 
 const normalizeAmount = (amount: unknown): string => {
@@ -143,8 +136,8 @@ const createRequestHash = (input: NormalizedTransferInput): string =>
   createHash("sha256")
     .update(
       JSON.stringify({
-        fromWalletId: input.fromWalletId,
-        toWalletId: input.toWalletId,
+        fromWalletIban: input.fromWalletIban,
+        toWalletIban: input.toWalletIban,
         amount: input.amount,
         description: input.description,
       })
@@ -153,30 +146,32 @@ const createRequestHash = (input: NormalizedTransferInput): string =>
 
 const getLockedWallets = async (
   client: PoolClient,
-  fromWalletId: number,
-  toWalletId: number
+  fromWalletIban: string,
+  toWalletIban: string
 ): Promise<{
   fromWallet: LockedWalletRecord | null;
   toWallet: LockedWalletRecord | null;
 }> => {
-  const lockOrder = [fromWalletId, toWalletId].sort((first, second) => first - second);
-  const firstWallet = await lockWalletById(client, lockOrder[0]);
-  const secondWallet = await lockWalletById(client, lockOrder[1]);
+  const lockOrder = [fromWalletIban, toWalletIban].sort();
+  const firstWallet = await lockWalletByIban(client, lockOrder[0]);
+  const secondWallet = await lockWalletByIban(client, lockOrder[1]);
   const wallets = [firstWallet, secondWallet];
 
   return {
-    fromWallet: wallets.find((wallet) => wallet?.id === fromWalletId) ?? null,
-    toWallet: wallets.find((wallet) => wallet?.id === toWalletId) ?? null,
+    fromWallet: wallets.find((wallet) => wallet?.iban === fromWalletIban) ?? null,
+    toWallet: wallets.find((wallet) => wallet?.iban === toWalletIban) ?? null,
   };
 };
 
 const toPublicTransfer = (
   transferOut: TransferLedgerEntryRecord,
-  transferIn: TransferLedgerEntryRecord
+  transferIn: TransferLedgerEntryRecord,
+  fromWalletIban: string,
+  toWalletIban: string
 ): PublicTransfer => ({
   transferReference: transferOut.transferReference,
-  fromWalletId: transferOut.walletId,
-  toWalletId: transferIn.walletId,
+  fromWalletIban,
+  toWalletIban,
   amount: transferOut.amount,
   description: transferOut.description,
   transferOutTransactionId: transferOut.id,
@@ -192,18 +187,18 @@ export const createTransfer = async (
   }
 
   const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
-  const fromWalletId = parseWalletId(input.fromWalletId, "fromWalletId");
-  const toWalletId = parseWalletId(input.toWalletId, "toWalletId");
+  const fromWalletIban = parseWalletIban(input.fromWalletIban, "fromWalletIban");
+  const toWalletIban = parseWalletIban(input.toWalletIban, "toWalletIban");
 
-  if (fromWalletId === toWalletId) {
-    throw new HttpError(400, "fromWalletId and toWalletId must be different");
+  if (fromWalletIban === toWalletIban) {
+    throw new HttpError(400, "fromWalletIban and toWalletIban must be different");
   }
 
   const amount = normalizeAmount(input.amount);
   const description = normalizeDescription(input.description);
   const normalizedTransferInput = {
-    fromWalletId,
-    toWalletId,
+    fromWalletIban,
+    toWalletIban,
     amount,
     description,
   };
@@ -238,8 +233,8 @@ export const createTransfer = async (
 
     const { fromWallet, toWallet } = await getLockedWallets(
       client,
-      fromWalletId,
-      toWalletId
+      fromWalletIban,
+      toWalletIban
     );
 
     if (!fromWallet || fromWallet.isArchived || fromWallet.userId !== input.userId) {
@@ -254,14 +249,14 @@ export const createTransfer = async (
       throw new HttpError(400, "Wallet currency codes must match");
     }
 
-    const balance = await calculateWalletBalanceForUpdate(client, fromWalletId);
+    const balance = await calculateWalletBalanceForUpdate(client, fromWallet.id);
 
     if (decimalToCents(amount) > decimalToCents(balance)) {
       throw new HttpError(400, "Insufficient balance");
     }
 
     const transferOut = await createTransferLedgerEntry(client, {
-      walletId: fromWalletId,
+      walletId: fromWallet.id,
       transactionType: "transfer_out",
       amount,
       description,
@@ -269,7 +264,7 @@ export const createTransfer = async (
     });
 
     const transferIn = await createTransferLedgerEntry(client, {
-      walletId: toWalletId,
+      walletId: toWallet.id,
       transactionType: "transfer_in",
       amount,
       description,
@@ -279,7 +274,12 @@ export const createTransfer = async (
     const response: TransferResponse = {
       statusCode: 201,
       body: {
-        transfer: toPublicTransfer(transferOut, transferIn),
+        transfer: toPublicTransfer(
+          transferOut,
+          transferIn,
+          fromWallet.iban,
+          toWallet.iban
+        ),
       },
     };
 

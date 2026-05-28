@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ledger Wallet</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <section id="authView" class="auth-view">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="brand-mark" aria-hidden="true">LW</div>
+          <div>
+            <h1>Ledger Wallet</h1>
+            <p>Sign in to manage wallets and transfers.</p>
+          </div>
+        </div>
+
+        <div class="auth-status">
+          <span class="label">API</span>
+          <strong id="authApiStatus">Checking</strong>
+        </div>
+
+        <div class="auth-tabs" role="tablist" aria-label="Access mode">
+          <button id="showLoginButton" class="tab-button active" type="button">
+            Existing account
+          </button>
+          <button id="showRegisterButton" class="tab-button" type="button">
+            New account
+          </button>
+        </div>
+
+        <div class="auth-form" id="loginPanel">
+          <label>
+            Email
+            <input id="loginEmail" type="email" autocomplete="email" />
+          </label>
+          <label>
+            Password
+            <input id="loginPassword" type="password" autocomplete="current-password" />
+          </label>
+          <button id="authLoginButton" type="button">Sign in</button>
+        </div>
+
+        <div class="auth-form hidden" id="registerPanel">
+          <label>
+            Email
+            <input id="registerEmail" type="email" autocomplete="email" />
+          </label>
+          <label>
+            Password
+            <input id="registerPassword" type="password" autocomplete="new-password" />
+          </label>
+          <label>
+            Display name
+            <input id="registerDisplayName" type="text" />
+          </label>
+          <label>
+            Base currency
+            <input id="registerBaseCurrencyCode" type="text" maxlength="3" value="USD" />
+          </label>
+          <button id="authRegisterButton" type="button">Create account</button>
+        </div>
+
+        <pre id="authOutput">No request sent.</pre>
+      </div>
+    </section>
+
+    <div id="dashboardView" class="app-shell hidden">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">LW</div>
+          <div>
+            <h1>Ledger Wallet</h1>
+            <p>Wallet operations</p>
+          </div>
+        </div>
+
+        <div class="session-panel">
+          <span class="label">Session</span>
+          <strong id="sessionName">Not signed in</strong>
+          <span id="sessionEmail" class="muted">No active user</span>
+        </div>
+
+        <div class="api-panel">
+          <span class="label">API</span>
+          <strong id="apiStatus">Checking</strong>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="page-header">
+          <div>
+            <span class="label">Dashboard</span>
+            <h2>Wallet Console</h2>
+          </div>
+          <button id="clearStateButton" class="secondary-button" type="button">
+            Clear session
+          </button>
+        </header>
+
+        <section class="metrics-grid" aria-label="Wallet summary">
+          <div class="metric-card">
+            <span>Selected wallet</span>
+            <strong id="selectedWalletMetric">None</strong>
+          </div>
+          <div class="metric-card">
+            <span>Current balance</span>
+            <strong id="balanceMetric">Not loaded</strong>
+          </div>
+          <div class="metric-card">
+            <span>Last transfer</span>
+            <strong id="transferMetric">None</strong>
+          </div>
+        </section>
+
+        <section class="content-grid">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <span class="label">Wallet</span>
+                <h3>Balance and ledger</h3>
+              </div>
+            </div>
+
+            <div class="form-grid">
+              <label class="wide-field">
+                All currently registered wallets
+                <select id="walletSelect">
+                  <option value="">No wallets loaded</option>
+                </select>
+              </label>
+              <label>
+                Wallet IBAN
+                <input id="walletIban" type="text" maxlength="6" readonly />
+              </label>
+              <label>
+                Balance
+                <input id="walletBalance" type="text" value="Not loaded" readonly />
+              </label>
+            </div>
+
+            <div class="button-row">
+              <button id="createWalletButton" type="button">Create wallet</button>
+              <button id="cancelCreateWalletButton" class="secondary-button hidden" type="button">
+                Cancel
+              </button>
+            </div>
+
+            <div id="createWalletFields" class="form-grid create-wallet-fields hidden">
+              <label>
+                Wallet name
+                <input id="walletName" type="text" value="Main wallet" />
+              </label>
+              <label>
+                Currency
+                <select id="currencyCode">
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                </select>
+              </label>
+              <label>
+                Initial deposit
+                <input id="initialBalance" type="text" value="0.00" />
+              </label>
+            </div>
+
+            <div class="money-row">
+              <label>
+                Amount
+                <input id="walletAmount" type="text" value="100.00" />
+              </label>
+              <label>
+                Description
+                <input id="walletDescription" type="text" value="Wallet operation" />
+              </label>
+            </div>
+
+            <div class="button-row">
+              <button id="depositButton" type="button">Deposit</button>
+              <button id="withdrawButton" class="danger-button" type="button">Withdraw</button>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <span class="label">Transfer</span>
+                <h3>Send money</h3>
+              </div>
+              
+            </div>
+
+            <div class="form-grid">
+              <label>
+                From IBAN
+                <input id="fromWalletIban" type="text" maxlength="6" />
+              </label>
+              <label>
+                To IBAN
+                <input id="toWalletIban" type="text" maxlength="6" />
+              </label>
+              <label>
+                Amount
+                <input id="transferAmount" type="text" value="25.00" />
+              </label>
+              <label>
+                Description
+                <input id="transferDescription" type="text" value="Transfer" />
+              </label>
+            </div>
+
+            <div class="button-row">
+              <button id="transferButton" type="button">Send transfer</button>
+              <button id="repeatTransferButton" class="secondary-button" type="button">Retry last request</button>
+            </div>
+          </section>
+
+          <section class="panel response-panel">
+            <div class="panel-header">
+              <div>
+                <span class="label">Response</span>
+                <h3>API result</h3>
+              </div>
+              <button id="clearResponseButton" class="secondary-button" type="button">Clear</button>
+            </div>
+            <pre id="responseOutput">No request sent.</pre>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
