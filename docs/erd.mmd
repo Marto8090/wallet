@@ -1,6 +1,7 @@
 erDiagram
     direction LR
     USERS ||--o{ WALLETS : owns
+    USERS ||--o{ IDEMPOTENCY_KEYS : owns
     WALLETS ||--o{ TRANSACTIONS : records
 
     USERS {
@@ -33,6 +34,19 @@ erDiagram
         UUID transfer_reference
         TEXT description
         TIMESTAMPTZ occurred_at
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    IDEMPOTENCY_KEYS {
+        BIGSERIAL id PK
+        BIGINT user_id FK
+        TEXT endpoint
+        TEXT idempotency_key
+        TEXT request_hash
+        TEXT status
+        INTEGER response_status_code
+        JSONB response_body
         TIMESTAMPTZ created_at
         TIMESTAMPTZ updated_at
     }

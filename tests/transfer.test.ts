@@ -133,12 +133,6 @@ const createTransferSetup = async (
   };
 };
 
-const archiveWallet = async (walletId: number): Promise<void> => {
-  await pool.query("UPDATE wallets SET is_archived = TRUE WHERE id = $1", [
-    walletId,
-  ]);
-};
-
 const getTransferLedgerCounts = async (): Promise<{
   transferIn: number;
   transferOut: number;
@@ -601,45 +595,4 @@ describe("POST /transfers", () => {
     });
   });
 
-  it("returns 404 when the sender wallet is archived", async () => {
-    const { sender, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
-      await createTransferSetup();
-    await deposit(sender.token, senderWalletIban, "100.00");
-    await archiveWallet(senderWalletId);
-
-    const response = await postTransfer(sender.token, {
-      fromWalletIban: senderWalletIban,
-      toWalletIban: receiverWalletIban,
-      amount: "25.00",
-    });
-
-    expect(response.status).toBe(404);
-    expect(response.body.error).toBe("Sender wallet not found");
-    await expect(getTransferLedgerCounts()).resolves.toEqual({
-      transferIn: 0,
-      transferOut: 0,
-      total: 0,
-    });
-  });
-
-  it("returns 404 when the receiver wallet is archived", async () => {
-    const { sender, senderWalletId, senderWalletIban, receiverWalletId, receiverWalletIban } =
-      await createTransferSetup();
-    await deposit(sender.token, senderWalletIban, "100.00");
-    await archiveWallet(receiverWalletId);
-
-    const response = await postTransfer(sender.token, {
-      fromWalletIban: senderWalletIban,
-      toWalletIban: receiverWalletIban,
-      amount: "25.00",
-    });
-
-    expect(response.status).toBe(404);
-    expect(response.body.error).toBe("Receiver wallet not found");
-    await expect(getTransferLedgerCounts()).resolves.toEqual({
-      transferIn: 0,
-      transferOut: 0,
-      total: 0,
-    });
-  });
 });

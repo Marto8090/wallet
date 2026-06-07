@@ -370,7 +370,9 @@ button:hover {
 
 .money-row {
   grid-template-columns: minmax(120px, 0.8fr) minmax(180px, 1.2fr);
-  margin-top: 14px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
 }
 
 pre {

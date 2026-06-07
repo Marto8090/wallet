@@ -35,6 +35,8 @@ services:
         condition: service_healthy
 
   backend-test:
+    profiles:
+      - test
     build:
       context: .
       target: test

@@ -35,6 +35,7 @@ export type AuthResponse = {
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CURRENCY_CODE_REGEX = /^[A-Z]{3}$/;
+const ALLOWED_BASE_CURRENCY_CODES = ["USD", "EUR", "GBP"] as const;
 const MIN_PASSWORD_LENGTH = 8;
 const PASSWORD_SALT_ROUNDS = 12;
 
@@ -88,6 +89,17 @@ export const registerUser = async (
 
   if (!CURRENCY_CODE_REGEX.test(baseCurrencyCode)) {
     throw new HttpError(400, "Base currency code must be a 3-letter ISO code");
+  }
+
+  if (
+    !ALLOWED_BASE_CURRENCY_CODES.includes(
+      baseCurrencyCode as (typeof ALLOWED_BASE_CURRENCY_CODES)[number]
+    )
+  ) {
+    throw new HttpError(
+      400,
+      "Base currency code must be one of USD, EUR, or GBP"
+    );
   }
 
   if (password.length < MIN_PASSWORD_LENGTH) {
