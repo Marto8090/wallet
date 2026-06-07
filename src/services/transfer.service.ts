@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "crypto";
 import { PoolClient } from "pg";
+import { env } from "../config/env";
 import { HttpError } from "../errors/http-error";
 import {
   completeIdempotencyKey,
@@ -211,6 +212,7 @@ export const createTransfer = async (
       endpoint: TRANSFER_ENDPOINT,
       idempotencyKey,
       requestHash,
+      ttlSeconds: env.idempotencyKeyTtlSeconds,
     });
 
     if (idempotency.record.requestHash !== requestHash) {

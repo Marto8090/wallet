@@ -1,9 +1,11 @@
 import app from "./app";
 import { env } from "./config/env";
 import { ensureSchema } from "./db/schema";
+import { cleanupExpiredIdempotencyKeys } from "./repositories/idempotency.repository";
 
 const startServer = async (): Promise<void> => {
   await ensureSchema();
+  await cleanupExpiredIdempotencyKeys();
 
   app.listen(env.port, () => {
     console.log(`Server running on port ${env.port}`);

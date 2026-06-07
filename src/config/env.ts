@@ -37,4 +37,8 @@ export const env = {
   dbPassword: readString("DB_PASSWORD"),
   jwtSecret: readString("JWT_SECRET"),
   jwtExpiresInSeconds: readNumber("JWT_EXPIRES_IN_SECONDS", 3600),
+  idempotencyKeyTtlSeconds: readNumber(
+    "IDEMPOTENCY_KEY_TTL_SECONDS",
+    24 * 60 * 60
+  ),
 };

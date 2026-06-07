@@ -13,6 +13,11 @@ import {
   TransactionRecord,
   WalletSummaryRecord,
 } from "../repositories/wallet.repository";
+import {
+  calculateWalletBalanceForUpdate,
+  lockWalletByIban,
+  withTransaction,
+} from "../repositories/transfer.repository";
 
 type CreateDepositInput = {
   userId: number;
@@ -208,6 +213,13 @@ const normalizeAmount = (amount: unknown): string => {
   return numericAmount.toFixed(2);
 };
 
+const decimalToCents = (amount: string): bigint => {
+  const [wholePart, decimalPart = ""] = amount.split(".");
+  const centsText = decimalPart.padEnd(2, "0").slice(0, 2);
+
+  return BigInt(wholePart) * 100n + BigInt(centsText);
+};
+
 const normalizeInitialBalance = (initialBalance: unknown): string => {
   if (initialBalance === undefined || initialBalance === null) {
     return "0.00";
@@ -347,25 +359,29 @@ export const createWithdraw = async (
   const walletIban = parseWalletIban(input.walletIban);
   const amount = normalizeAmount(input.amount);
   const description = normalizeDescription(input.description);
-  const wallet = await findWalletByIban(walletIban);
 
-  if (!wallet || wallet.isArchived || wallet.userId !== input.userId) {
-    throw new HttpError(404, "Wallet not found");
-  }
+  return withTransaction(async (client) => {
+    const wallet = await lockWalletByIban(client, walletIban);
 
-  const balance = await calculateWalletBalance(wallet.id);
+    if (!wallet || wallet.isArchived || wallet.userId !== input.userId) {
+      throw new HttpError(404, "Wallet not found");
+    }
 
-  if (Number(amount) > Number(balance.amount)) {
-    throw new HttpError(400, "Insufficient balance");
-  }
+    const balance = await calculateWalletBalanceForUpdate(client, wallet.id);
 
-  const transaction = await createWithdrawTransaction({
-    walletId: wallet.id,
-    amount,
-    description,
+    if (decimalToCents(amount) > decimalToCents(balance)) {
+      throw new HttpError(400, "Insufficient balance");
+    }
+
+    const transaction = await createWithdrawTransaction({
+      client,
+      walletId: wallet.id,
+      amount,
+      description,
+    });
+
+    return toPublicTransaction(transaction);
   });
-
-  return toPublicTransaction(transaction);
 };
 
 export const getWalletBalance = async (input: {

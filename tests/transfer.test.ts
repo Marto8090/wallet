@@ -75,6 +75,19 @@ const deposit = async (
   expect(response.status).toBe(201);
 };
 
+const postWithdraw = (
+  token: string,
+  walletIban: string,
+  amount: string
+): request.Test =>
+  request(app)
+    .post(`/wallets/${walletIban}/withdrawals`)
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      amount,
+      description: "Test withdrawal",
+    });
+
 const getBalance = async (
   token: string,
   walletIban: string
@@ -211,6 +224,30 @@ describe("POST /wallets", () => {
     expect(firstWallet.iban).toMatch(/^[A-Z0-9]{6}$/);
     expect(secondWallet.iban).toMatch(/^[A-Z0-9]{6}$/);
     expect(firstWallet.iban).not.toBe(secondWallet.iban);
+  });
+});
+
+describe("POST /wallets/:walletIban/withdrawals", () => {
+  it("prevents concurrent withdrawals from overspending a wallet", async () => {
+    const user = await registerUser("Withdraw Owner");
+    const wallet = await createWallet(user.token, "USD");
+    await deposit(user.token, wallet.iban, "100.00");
+
+    const withdrawResponses = await Promise.all([
+      postWithdraw(user.token, wallet.iban, "80.00"),
+      postWithdraw(user.token, wallet.iban, "80.00"),
+    ]);
+
+    const statuses = withdrawResponses
+      .map((response) => response.status)
+      .sort((firstStatus, secondStatus) => firstStatus - secondStatus);
+    const failedResponse = withdrawResponses.find(
+      (response) => response.status === 400
+    );
+
+    expect(statuses).toEqual([201, 400]);
+    expect(failedResponse?.body.error).toBe("Insufficient balance");
+    await expect(getBalance(user.token, wallet.iban)).resolves.toBe("20.00");
   });
 });
 
@@ -401,6 +438,55 @@ describe("POST /transfers", () => {
       transferIn: 1,
       transferOut: 1,
       total: 2,
+    });
+  });
+
+  it("allows an expired idempotency key to be reused for a new request", async () => {
+    const { sender, receiver, senderWalletIban, receiverWalletIban } =
+      await createTransferSetup();
+    await deposit(sender.token, senderWalletIban, "100.00");
+
+    const idempotencyKey = createIdempotencyKey();
+    const firstResponse = await postTransfer(
+      sender.token,
+      {
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
+        amount: "25.00",
+      },
+      idempotencyKey
+    );
+
+    await pool.query(
+      "UPDATE idempotency_keys SET expires_at = NOW() - INTERVAL '1 second' WHERE idempotency_key = $1",
+      [idempotencyKey]
+    );
+
+    const secondResponse = await postTransfer(
+      sender.token,
+      {
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
+        amount: "30.00",
+      },
+      idempotencyKey
+    );
+
+    expect(firstResponse.status).toBe(201);
+    expect(secondResponse.status).toBe(201);
+    expect(secondResponse.body.transfer.transferReference).not.toBe(
+      firstResponse.body.transfer.transferReference
+    );
+    await expect(getBalance(sender.token, senderWalletIban)).resolves.toBe(
+      "45.00"
+    );
+    await expect(getBalance(receiver.token, receiverWalletIban)).resolves.toBe(
+      "55.00"
+    );
+    await expect(getTransferLedgerCounts()).resolves.toEqual({
+      transferIn: 2,
+      transferOut: 2,
+      total: 4,
     });
   });
 

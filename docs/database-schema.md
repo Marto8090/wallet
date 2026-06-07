@@ -76,12 +76,14 @@ Stores transfer idempotency keys so repeated transfer requests do not create dup
 | `status` | `TEXT` | Required, must be `in_progress` or `completed` |
 | `response_status_code` | `INTEGER` | Stored response status |
 | `response_body` | `JSONB` | Stored response body |
+| `expires_at` | `TIMESTAMPTZ` | Required, defaults to 24 hours after creation |
 | `created_at` | `TIMESTAMPTZ` | Required, defaults to `NOW()` |
 | `updated_at` | `TIMESTAMPTZ` | Required, defaults to `NOW()` |
 
 Indexes and constraints:
 
 - `idempotency_keys_user_endpoint_key_unique`: the same user cannot reuse the same idempotency key for the same endpoint with different stored state.
+- `idempotency_keys_expires_at_idx`: supports cleanup of expired idempotency keys.
 
 ## Relationships
 

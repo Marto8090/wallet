@@ -3,6 +3,8 @@
     "bcrypt": "^6.0.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "pg": "^8.20.0"
   },
@@ -24,7 +26,7 @@
     "dev": "ts-node src/server.ts",
     "build": "tsc",
     "test": "jest --runInBand",
-    "test:docker": "docker compose run --rm --build backend-test",
+    "test:docker": "docker compose --profile test run --rm --build backend-test",
     "start": "node dist/server.js"
   }
 }

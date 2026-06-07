@@ -4,6 +4,14 @@ This project can run with Docker Compose using one backend container and one Pos
 
 ## Start
 
+Create a local `.env` file first:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then edit `.env` and replace the example database password and JWT secrets with your own values.
+
 ```powershell
 docker compose up --build
 ```
@@ -54,3 +62,11 @@ docker compose down -v
 ## Notes
 
 The backend container uses `DB_HOST=postgres` because containers connect to each other by service name. The local `.env` file can still use `DB_HOST=localhost` when running the backend directly on your machine.
+
+Docker Compose reads `DB_PASSWORD`, `JWT_SECRET`, and the optional Docker settings from `.env`. `POSTGRES_DB` and `POSTGRES_USER` can override the Docker database name and user, and the PostgreSQL password defaults to `DB_PASSWORD`. The compose file intentionally does not store production-style secrets directly.
+
+## Run Tests In Docker
+
+```powershell
+docker compose --profile test run --rm --build backend-test
+```

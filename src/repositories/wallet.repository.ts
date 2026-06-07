@@ -1,4 +1,4 @@
-import { QueryResult } from "pg";
+import { PoolClient, QueryResult } from "pg";
 import { pool } from "../db";
 
 type RawWalletRecord = {
@@ -92,6 +92,7 @@ type CreateDepositInput = {
 };
 
 type CreateWithdrawInput = {
+  client?: PoolClient;
   walletId: number;
   amount: string;
   description: string | null;
@@ -324,7 +325,8 @@ export const createDepositTransaction = async (
 export const createWithdrawTransaction = async (
   input: CreateWithdrawInput
 ): Promise<TransactionRecord> => {
-  const result = await pool.query<RawTransactionRecord>(
+  const queryClient = input.client ?? pool;
+  const result = await queryClient.query<RawTransactionRecord>(
     `
       INSERT INTO transactions (wallet_id, transaction_type, amount, description)
       VALUES ($1, 'withdraw', $2, $3)

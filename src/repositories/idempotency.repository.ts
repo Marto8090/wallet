@@ -1,4 +1,5 @@
 import { PoolClient } from "pg";
+import { pool } from "../db";
 
 export type IdempotencyStatus = "in_progress" | "completed";
 
@@ -11,6 +12,7 @@ export type IdempotencyRecord = {
   status: IdempotencyStatus;
   responseStatusCode: number | null;
   responseBody: unknown;
+  expiresAt: Date;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -29,6 +31,7 @@ type RawIdempotencyRecord = {
   status: IdempotencyStatus;
   response_status_code: string | number | null;
   response_body: unknown;
+  expires_at: Date;
   created_at: Date;
   updated_at: Date;
 };
@@ -38,6 +41,7 @@ type CreateOrLockIdempotencyKeyInput = {
   endpoint: string;
   idempotencyKey: string;
   requestHash: string;
+  ttlSeconds: number;
 };
 
 type CompleteIdempotencyKeyInput = {
@@ -56,6 +60,7 @@ const idempotencySelect = `
     status,
     response_status_code,
     response_body,
+    expires_at,
     created_at,
     updated_at
   FROM idempotency_keys
@@ -73,14 +78,37 @@ const normalizeIdempotencyRecord = (
   responseStatusCode:
     row.response_status_code === null ? null : Number(row.response_status_code),
   responseBody: row.response_body,
+  expiresAt: row.expires_at,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
+
+export const cleanupExpiredIdempotencyKeys = async (): Promise<number> => {
+  const result = await pool.query(
+    `
+      DELETE FROM idempotency_keys
+      WHERE expires_at <= NOW()
+    `
+  );
+
+  return result.rowCount ?? 0;
+};
 
 export const createOrLockIdempotencyKey = async (
   client: PoolClient,
   input: CreateOrLockIdempotencyKeyInput
 ): Promise<LockedIdempotencyRecord> => {
+  await client.query(
+    `
+      DELETE FROM idempotency_keys
+      WHERE user_id = $1
+        AND endpoint = $2
+        AND idempotency_key = $3
+        AND expires_at <= NOW()
+    `,
+    [input.userId, input.endpoint, input.idempotencyKey]
+  );
+
   const insertResult = await client.query<RawIdempotencyRecord>(
     `
       INSERT INTO idempotency_keys (
@@ -88,9 +116,10 @@ export const createOrLockIdempotencyKey = async (
         endpoint,
         idempotency_key,
         request_hash,
-        status
+        status,
+        expires_at
       )
-      VALUES ($1, $2, $3, $4, 'in_progress')
+      VALUES ($1, $2, $3, $4, 'in_progress', NOW() + ($5 * INTERVAL '1 second'))
       ON CONFLICT (user_id, endpoint, idempotency_key) DO NOTHING
       RETURNING
         id,
@@ -101,10 +130,17 @@ export const createOrLockIdempotencyKey = async (
         status,
         response_status_code,
         response_body,
+        expires_at,
         created_at,
         updated_at
     `,
-    [input.userId, input.endpoint, input.idempotencyKey, input.requestHash]
+    [
+      input.userId,
+      input.endpoint,
+      input.idempotencyKey,
+      input.requestHash,
+      input.ttlSeconds,
+    ]
   );
 
   const insertedRow = insertResult.rows[0];
@@ -155,6 +191,7 @@ export const completeIdempotencyKey = async (
         status,
         response_status_code,
         response_body,
+        expires_at,
         created_at,
         updated_at
     `,

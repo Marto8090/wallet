@@ -25,6 +25,7 @@ export const ensureSchema = async (): Promise<void> => {
       status TEXT NOT NULL,
       response_status_code INTEGER,
       response_body JSONB,
+      expires_at TIMESTAMPTZ NOT NULL DEFAULT (NOW() + INTERVAL '24 hours'),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       CONSTRAINT idempotency_keys_status_allowed
@@ -36,6 +37,32 @@ export const ensureSchema = async (): Promise<void> => {
       CONSTRAINT idempotency_keys_user_endpoint_key_unique
         UNIQUE (user_id, endpoint, idempotency_key)
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE idempotency_keys
+    ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+  `);
+
+  await pool.query(`
+    UPDATE idempotency_keys
+    SET expires_at = created_at + INTERVAL '24 hours'
+    WHERE expires_at IS NULL;
+  `);
+
+  await pool.query(`
+    ALTER TABLE idempotency_keys
+    ALTER COLUMN expires_at SET DEFAULT (NOW() + INTERVAL '24 hours');
+  `);
+
+  await pool.query(`
+    ALTER TABLE idempotency_keys
+    ALTER COLUMN expires_at SET NOT NULL;
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idempotency_keys_expires_at_idx
+    ON idempotency_keys (expires_at);
   `);
 
   await pool.query(`
