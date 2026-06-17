@@ -1,6 +1,11 @@
 import { Response } from "express";
 import { HttpError } from "../errors/http-error";
 import {
+  getAuditErrorMessage,
+  getAuditStatusCode,
+  recordAuditEvent,
+} from "../services/audit.service";
+import {
   createDeposit,
   createUserWallet,
   createWithdraw,
@@ -32,8 +37,33 @@ export const createWallet = async (
       initialBalance: req.body?.initialBalance,
     });
 
+    await recordAuditEvent({
+      userId,
+      eventType: "wallet.create.success",
+      status: "success",
+      entityType: "wallet",
+      entityId: wallet.id,
+      metadata: {
+        walletIban: wallet.iban,
+        currencyCode: wallet.currencyCode,
+        initialBalance: wallet.initialBalance,
+      },
+    });
+
     res.status(201).json({ wallet });
   } catch (error) {
+    await recordAuditEvent({
+      userId: Number(req.user?.sub) || null,
+      eventType: "wallet.create.failure",
+      status: "failure",
+      entityType: "wallet",
+      metadata: {
+        currencyCode: req.body?.currencyCode,
+        initialBalance: req.body?.initialBalance,
+        errorMessage: getAuditErrorMessage(error),
+        statusCode: getAuditStatusCode(error),
+      },
+    });
     sendError(res, error);
   }
 };
@@ -65,8 +95,33 @@ export const deposit = async (
       description: req.body?.description,
     });
 
+    await recordAuditEvent({
+      userId,
+      eventType: "wallet.deposit.success",
+      status: "success",
+      entityType: "transaction",
+      entityId: transaction.id,
+      metadata: {
+        walletIban: req.params.walletIban,
+        walletId: transaction.walletId,
+        amount: transaction.amount,
+      },
+    });
+
     res.status(201).json({ transaction });
   } catch (error) {
+    await recordAuditEvent({
+      userId: Number(req.user?.sub) || null,
+      eventType: "wallet.deposit.failure",
+      status: "failure",
+      entityType: "transaction",
+      metadata: {
+        walletIban: req.params.walletIban,
+        amount: req.body?.amount,
+        errorMessage: getAuditErrorMessage(error),
+        statusCode: getAuditStatusCode(error),
+      },
+    });
     sendError(res, error);
   }
 };
@@ -84,8 +139,33 @@ export const withdraw = async (
       description: req.body?.description,
     });
 
+    await recordAuditEvent({
+      userId,
+      eventType: "wallet.withdraw.success",
+      status: "success",
+      entityType: "transaction",
+      entityId: transaction.id,
+      metadata: {
+        walletIban: req.params.walletIban,
+        walletId: transaction.walletId,
+        amount: transaction.amount,
+      },
+    });
+
     res.status(201).json({ transaction });
   } catch (error) {
+    await recordAuditEvent({
+      userId: Number(req.user?.sub) || null,
+      eventType: "wallet.withdraw.failure",
+      status: "failure",
+      entityType: "transaction",
+      metadata: {
+        walletIban: req.params.walletIban,
+        amount: req.body?.amount,
+        errorMessage: getAuditErrorMessage(error),
+        statusCode: getAuditStatusCode(error),
+      },
+    });
     sendError(res, error);
   }
 };

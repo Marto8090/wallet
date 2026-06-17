@@ -85,9 +85,27 @@ Indexes and constraints:
 - `idempotency_keys_user_endpoint_key_unique`: the same user cannot reuse the same idempotency key for the same endpoint with different stored state.
 - `idempotency_keys_expires_at_idx`: supports cleanup of expired idempotency keys.
 
+## audit_logs
+
+Stores internal audit events for security and money-related actions. Audit logs are not exposed through the public API.
+
+| Column | Type | Rules |
+| --- | --- | --- |
+| `id` | `BIGSERIAL` | Primary key |
+| `user_id` | `BIGINT` | Optional, references `users(id)`, set to `NULL` if the user is deleted |
+| `event_type` | `TEXT` | Required |
+| `status` | `TEXT` | Required, must be `success` or `failure` |
+| `entity_type` | `TEXT` | Optional |
+| `entity_id` | `TEXT` | Optional |
+| `metadata` | `JSONB` | Required, defaults to `{}` |
+| `created_at` | `TIMESTAMPTZ` | Required, defaults to `NOW()` |
+
+Audit logs must not store passwords, JWTs, or raw idempotency keys.
+
 ## Relationships
 
 - One user can own many wallets.
 - One user can own many idempotency key records.
+- One user can have many audit log records.
 - One wallet can have many transaction records.
 - A transfer is represented by two transaction records linked by the same `transfer_reference`.

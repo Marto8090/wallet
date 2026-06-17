@@ -42,7 +42,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   const { pool } = await import("../src/db");
   await pool.query(
-    "TRUNCATE TABLE idempotency_keys, transactions, wallets, users RESTART IDENTITY CASCADE"
+    "TRUNCATE TABLE audit_logs, idempotency_keys, transactions, wallets, users RESTART IDENTITY CASCADE"
   );
 });
 

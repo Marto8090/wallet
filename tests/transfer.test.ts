@@ -4,11 +4,20 @@ import { pool } from "../src/db";
 
 type AuthContext = {
   token: string;
+  email: string;
 };
 
 type WalletContext = {
   id: number;
   iban: string;
+};
+
+type AuditLogRow = {
+  event_type: string;
+  status: "success" | "failure";
+  entity_type: string | null;
+  entity_id: string | null;
+  metadata: Record<string, unknown>;
 };
 
 let emailSequence = 0;
@@ -19,11 +28,12 @@ const registerUser = async (
   baseCurrencyCode = "USD"
 ): Promise<AuthContext> => {
   emailSequence += 1;
+  const email = `test-user-${Date.now()}-${emailSequence}@example.com`;
 
   const response = await request(app)
     .post("/auth/register")
     .send({
-      email: `test-user-${Date.now()}-${emailSequence}@example.com`,
+      email,
       displayName,
       baseCurrencyCode,
       password: "password123",
@@ -33,6 +43,7 @@ const registerUser = async (
 
   return {
     token: response.body.token,
+    email,
   };
 };
 
@@ -186,6 +197,30 @@ const getTransferLedgerCounts = async (): Promise<{
   return counts;
 };
 
+const getAuditLogs = async (eventType: string): Promise<AuditLogRow[]> => {
+  const result = await pool.query<AuditLogRow>(
+    `
+      SELECT event_type, status, entity_type, entity_id, metadata
+      FROM audit_logs
+      WHERE event_type = $1
+      ORDER BY id ASC
+    `,
+    [eventType]
+  );
+
+  return result.rows;
+};
+
+const expectSingleAuditLog = async (
+  eventType: string
+): Promise<AuditLogRow> => {
+  const auditLogs = await getAuditLogs(eventType);
+
+  expect(auditLogs).toHaveLength(1);
+
+  return auditLogs[0];
+};
+
 describe("POST /wallets", () => {
   it("returns 400 when the same user reuses a wallet name", async () => {
     const user = await registerUser("Wallet Owner");
@@ -248,6 +283,245 @@ describe("POST /wallets/:walletIban/withdrawals", () => {
     expect(statuses).toEqual([201, 400]);
     expect(failedResponse?.body.error).toBe("Insufficient balance");
     await expect(getBalance(user.token, wallet.iban)).resolves.toBe("20.00");
+  });
+});
+
+describe("audit logging", () => {
+  it("records a successful login", async () => {
+    const user = await registerUser("Audit Login User");
+
+    const response = await request(app).post("/auth/login").send({
+      email: user.email,
+      password: "password123",
+    });
+
+    expect(response.status).toBe(200);
+
+    const auditLog = await expectSingleAuditLog("auth.login.success");
+
+    expect(auditLog.status).toBe("success");
+    expect(auditLog.entity_type).toBe("user");
+    expect(auditLog.metadata).toEqual(
+      expect.objectContaining({
+        email: user.email,
+      })
+    );
+  });
+
+  it("records a failed login", async () => {
+    const email = "missing-login-user@example.com";
+
+    const response = await request(app).post("/auth/login").send({
+      email,
+      password: "wrong-password",
+    });
+
+    expect(response.status).toBe(401);
+
+    const auditLog = await expectSingleAuditLog("auth.login.failure");
+
+    expect(auditLog.status).toBe("failure");
+    expect(auditLog.entity_type).toBe("user");
+    expect(auditLog.metadata).toEqual(
+      expect.objectContaining({
+        email,
+        errorMessage: "Invalid email or password",
+        statusCode: 401,
+      })
+    );
+  });
+
+  it("records a successful wallet creation", async () => {
+    const user = await registerUser("Audit Wallet User");
+    const wallet = await createWallet(user.token, "USD", "Audit wallet");
+
+    const auditLog = await expectSingleAuditLog("wallet.create.success");
+
+    expect(auditLog.status).toBe("success");
+    expect(auditLog.entity_type).toBe("wallet");
+    expect(auditLog.entity_id).toBe(wallet.id.toString());
+    expect(auditLog.metadata).toEqual(
+      expect.objectContaining({
+        walletIban: wallet.iban,
+        currencyCode: "USD",
+        initialBalance: "0.00",
+      })
+    );
+  });
+
+  it("records a successful deposit", async () => {
+    const user = await registerUser("Audit Deposit User");
+    const wallet = await createWallet(user.token, "USD", "Deposit wallet");
+
+    await deposit(user.token, wallet.iban, "40.00");
+
+    const auditLog = await expectSingleAuditLog("wallet.deposit.success");
+
+    expect(auditLog.status).toBe("success");
+    expect(auditLog.entity_type).toBe("transaction");
+    expect(auditLog.metadata).toEqual(
+      expect.objectContaining({
+        walletIban: wallet.iban,
+        amount: "40.00",
+      })
+    );
+  });
+
+  it("records a failed withdrawal for insufficient balance", async () => {
+    const user = await registerUser("Audit Withdraw User");
+    const wallet = await createWallet(user.token, "USD", "Withdraw wallet");
+
+    const response = await postWithdraw(user.token, wallet.iban, "10.00");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("Insufficient balance");
+
+    const auditLog = await expectSingleAuditLog("wallet.withdraw.failure");
+
+    expect(auditLog.status).toBe("failure");
+    expect(auditLog.entity_type).toBe("transaction");
+    expect(auditLog.metadata).toEqual(
+      expect.objectContaining({
+        walletIban: wallet.iban,
+        amount: "10.00",
+        errorMessage: "Insufficient balance",
+        statusCode: 400,
+      })
+    );
+  });
+
+  it("records a successful transfer", async () => {
+    const { sender, senderWalletIban, receiverWalletIban } =
+      await createTransferSetup();
+    const idempotencyKey = createIdempotencyKey();
+
+    await deposit(sender.token, senderWalletIban, "100.00");
+
+    const response = await postTransfer(
+      sender.token,
+      {
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
+        amount: "25.00",
+      },
+      idempotencyKey
+    );
+
+    expect(response.status).toBe(201);
+
+    const auditLog = await expectSingleAuditLog("transfer.create.success");
+
+    expect(auditLog.status).toBe("success");
+    expect(auditLog.entity_type).toBe("transfer");
+    expect(auditLog.entity_id).toBe(
+      response.body.transfer.transferReference
+    );
+    expect(auditLog.metadata).toEqual(
+      expect.objectContaining({
+        transferReference: response.body.transfer.transferReference,
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
+        amount: "25.00",
+        idempotencyKeyHash: expect.any(String),
+      })
+    );
+    expect(auditLog.metadata.idempotencyKeyHash).not.toBe(idempotencyKey);
+  });
+
+  it("records a transfer idempotency replay", async () => {
+    const { sender, senderWalletIban, receiverWalletIban } =
+      await createTransferSetup();
+    const transferBody = {
+      fromWalletIban: senderWalletIban,
+      toWalletIban: receiverWalletIban,
+      amount: "25.00",
+    };
+    const idempotencyKey = createIdempotencyKey();
+
+    await deposit(sender.token, senderWalletIban, "100.00");
+
+    const firstResponse = await postTransfer(
+      sender.token,
+      transferBody,
+      idempotencyKey
+    );
+    const replayResponse = await postTransfer(
+      sender.token,
+      transferBody,
+      idempotencyKey
+    );
+
+    expect(firstResponse.status).toBe(201);
+    expect(replayResponse.status).toBe(201);
+    expect(replayResponse.body).toEqual(firstResponse.body);
+
+    const auditLog = await expectSingleAuditLog(
+      "transfer.idempotency.replay"
+    );
+
+    expect(auditLog.status).toBe("success");
+    expect(auditLog.entity_type).toBe("transfer");
+    expect(auditLog.entity_id).toBe(
+      firstResponse.body.transfer.transferReference
+    );
+    expect(auditLog.metadata).toEqual(
+      expect.objectContaining({
+        transferReference: firstResponse.body.transfer.transferReference,
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
+        amount: "25.00",
+        idempotencyKeyHash: expect.any(String),
+      })
+    );
+    expect(auditLog.metadata.idempotencyKeyHash).not.toBe(idempotencyKey);
+  });
+
+  it("records a transfer idempotency conflict", async () => {
+    const { sender, senderWalletIban, receiverWalletIban } =
+      await createTransferSetup();
+    const idempotencyKey = createIdempotencyKey();
+
+    await deposit(sender.token, senderWalletIban, "100.00");
+
+    const firstResponse = await postTransfer(
+      sender.token,
+      {
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
+        amount: "25.00",
+      },
+      idempotencyKey
+    );
+    const conflictResponse = await postTransfer(
+      sender.token,
+      {
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
+        amount: "30.00",
+      },
+      idempotencyKey
+    );
+
+    expect(firstResponse.status).toBe(201);
+    expect(conflictResponse.status).toBe(409);
+
+    const auditLog = await expectSingleAuditLog(
+      "transfer.idempotency.conflict"
+    );
+
+    expect(auditLog.status).toBe("failure");
+    expect(auditLog.entity_type).toBe("transfer");
+    expect(auditLog.metadata).toEqual(
+      expect.objectContaining({
+        fromWalletIban: senderWalletIban,
+        toWalletIban: receiverWalletIban,
+        amount: "30.00",
+        idempotencyKeyHash: expect.any(String),
+        errorMessage:
+          "Idempotency-Key was already used with a different request",
+      })
+    );
+    expect(auditLog.metadata.idempotencyKeyHash).not.toBe(idempotencyKey);
   });
 });
 

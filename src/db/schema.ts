@@ -40,6 +40,33 @@ export const ensureSchema = async (): Promise<void> => {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      event_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id TEXT,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT audit_logs_status_allowed
+        CHECK (status IN ('success', 'failure')),
+      CONSTRAINT audit_logs_event_type_not_empty
+        CHECK (LENGTH(event_type) > 0)
+    );
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS audit_logs_user_id_created_at_idx
+    ON audit_logs (user_id, created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS audit_logs_event_type_created_at_idx
+    ON audit_logs (event_type, created_at DESC);
+  `);
+
+  await pool.query(`
     ALTER TABLE idempotency_keys
     ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
   `);

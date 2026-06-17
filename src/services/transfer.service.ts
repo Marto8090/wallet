@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "crypto";
 import { PoolClient } from "pg";
 import { env } from "../config/env";
 import { HttpError } from "../errors/http-error";
+import { hashAuditValue, recordAuditEvent } from "./audit.service";
 import {
   completeIdempotencyKey,
   createOrLockIdempotencyKey,
@@ -204,6 +205,7 @@ export const createTransfer = async (
     description,
   };
   const requestHash = createRequestHash(normalizedTransferInput);
+  const idempotencyKeyHash = hashAuditValue(idempotencyKey);
   const transferReference = randomUUID();
 
   return withTransaction(async (client) => {
@@ -216,6 +218,20 @@ export const createTransfer = async (
     });
 
     if (idempotency.record.requestHash !== requestHash) {
+      await recordAuditEvent({
+        userId: input.userId,
+        eventType: "transfer.idempotency.conflict",
+        status: "failure",
+        entityType: "transfer",
+        metadata: {
+          fromWalletIban,
+          toWalletIban,
+          amount,
+          idempotencyKeyHash,
+          errorMessage:
+            "Idempotency-Key was already used with a different request",
+        },
+      });
       throw new HttpError(
         409,
         "Idempotency-Key was already used with a different request"
@@ -227,9 +243,27 @@ export const createTransfer = async (
       idempotency.record.status === "completed" &&
       idempotency.record.responseStatusCode !== null
     ) {
+      const responseBody =
+        idempotency.record.responseBody as TransferResponseBody;
+
+      await recordAuditEvent({
+        userId: input.userId,
+        eventType: "transfer.idempotency.replay",
+        status: "success",
+        entityType: "transfer",
+        entityId: responseBody.transfer.transferReference,
+        metadata: {
+          transferReference: responseBody.transfer.transferReference,
+          fromWalletIban: responseBody.transfer.fromWalletIban,
+          toWalletIban: responseBody.transfer.toWalletIban,
+          amount: responseBody.transfer.amount,
+          idempotencyKeyHash,
+        },
+      });
+
       return {
         statusCode: idempotency.record.responseStatusCode,
-        body: idempotency.record.responseBody as TransferResponseBody,
+        body: responseBody,
       };
     }
 
@@ -289,6 +323,23 @@ export const createTransfer = async (
       id: idempotency.record.id,
       responseStatusCode: response.statusCode,
       responseBody: response.body,
+    });
+
+    await recordAuditEvent({
+      userId: input.userId,
+      eventType: "transfer.create.success",
+      status: "success",
+      entityType: "transfer",
+      entityId: transferReference,
+      metadata: {
+        transferReference,
+        fromWalletIban: fromWallet.iban,
+        toWalletIban: toWallet.iban,
+        amount,
+        transferOutTransactionId: transferOut.id,
+        transferInTransactionId: transferIn.id,
+        idempotencyKeyHash,
+      },
     });
 
     return response;

@@ -2,6 +2,7 @@ erDiagram
     direction LR
     USERS ||--o{ WALLETS : owns
     USERS ||--o{ IDEMPOTENCY_KEYS : owns
+    USERS ||--o{ AUDIT_LOGS : records
     WALLETS ||--o{ TRANSACTIONS : records
 
     USERS {
@@ -50,4 +51,15 @@ erDiagram
         TIMESTAMPTZ expires_at
         TIMESTAMPTZ created_at
         TIMESTAMPTZ updated_at
+    }
+
+    AUDIT_LOGS {
+        BIGSERIAL id PK
+        BIGINT user_id FK
+        TEXT event_type
+        TEXT status
+        TEXT entity_type
+        TEXT entity_id
+        JSONB metadata
+        TIMESTAMPTZ created_at
     }
