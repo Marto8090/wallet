@@ -15,26 +15,6 @@ services:
       timeout: 5s
       retries: 5
 
-  backend:
-    build:
-      context: .
-      target: production
-    environment:
-      PORT: 3000
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: ${POSTGRES_DB:-wallet_db}
-      DB_USER: ${POSTGRES_USER:-wallet_user}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-${DB_PASSWORD:?Set DB_PASSWORD in .env}}
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
-      JWT_EXPIRES_IN_SECONDS: ${JWT_EXPIRES_IN_SECONDS:-3600}
-      IDEMPOTENCY_KEY_TTL_SECONDS: ${IDEMPOTENCY_KEY_TTL_SECONDS:-86400}
-    ports:
-      - "${BACKEND_HOST_PORT:-3000}:3000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-
   backend-test:
     profiles:
       - test
@@ -56,6 +36,27 @@ services:
       postgres:
         condition: service_healthy
     command: npm test
+
+  backend:
+    build:
+      context: .
+      target: production
+    environment:
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-wallet_db}
+      DB_USER: ${POSTGRES_USER:-wallet_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-${DB_PASSWORD:?Set DB_PASSWORD in .env}}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_EXPIRES_IN_SECONDS: ${JWT_EXPIRES_IN_SECONDS:-3600}
+      IDEMPOTENCY_KEY_TTL_SECONDS: ${IDEMPOTENCY_KEY_TTL_SECONDS:-86400}
+    ports:
+      - "${BACKEND_HOST_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 
 volumes:
   wallet_postgres_data:
