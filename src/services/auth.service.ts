@@ -26,6 +26,7 @@ export type PublicUser = {
   email: string;
   displayName: string;
   baseCurrencyCode: string;
+  isAdmin: boolean;
 };
 
 export type AuthResponse = {
@@ -52,6 +53,7 @@ const toPublicUser = (user: UserRecord): PublicUser => ({
   email: user.email,
   displayName: user.display_name,
   baseCurrencyCode: user.base_currency_code,
+  isAdmin: user.is_admin,
 });
 
 const createToken = (user: UserRecord): string =>

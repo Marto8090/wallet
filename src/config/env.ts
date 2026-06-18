@@ -41,4 +41,5 @@ export const env = {
     "IDEMPOTENCY_KEY_TTL_SECONDS",
     24 * 60 * 60
   ),
+  auditLogRetentionDays: readNumber("AUDIT_LOG_RETENTION_DAYS", 90),
 };

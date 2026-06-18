@@ -7,6 +7,7 @@ type RawUserRecord = {
   display_name: string;
   base_currency_code: string;
   password_hash: string;
+  is_admin: boolean;
   created_at: Date;
   updated_at: Date;
 };
@@ -17,6 +18,7 @@ export type UserRecord = {
   display_name: string;
   base_currency_code: string;
   password_hash: string;
+  is_admin: boolean;
   created_at: Date;
   updated_at: Date;
 };
@@ -35,6 +37,7 @@ const userSelect = `
     display_name,
     base_currency_code,
     password_hash,
+    is_admin,
     created_at,
     updated_at
   FROM users
@@ -84,6 +87,7 @@ export const createUser = async (
         display_name,
         base_currency_code,
         password_hash,
+        is_admin,
         created_at,
         updated_at
     `,

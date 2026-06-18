@@ -345,8 +345,33 @@ button {
   padding: 8px 12px;
 }
 
+a.secondary-link {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 800;
+  padding: 8px 12px;
+  text-decoration: none;
+}
+
+a.secondary-link:hover {
+  background: #eef5f2;
+}
+
 button:hover {
   background: var(--primary-dark);
+}
+
+button:disabled,
+button:disabled:hover {
+  border-color: var(--line);
+  background: #edf2ef;
+  color: #91a09a;
+  cursor: not-allowed;
 }
 
 .secondary-button {
@@ -373,6 +398,94 @@ button:hover {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--line);
+}
+
+.compact-actions {
+  margin-top: 0;
+}
+
+.audit-filter-grid {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.2fr) minmax(120px, 0.7fr) minmax(100px, 0.5fr) minmax(140px, 0.8fr) minmax(180px, 1.2fr) minmax(100px, 0.5fr);
+  gap: 14px;
+}
+
+.audit-table-panel {
+  margin-top: 16px;
+}
+
+.pagination-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.pagination-row span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 920px;
+  background: var(--surface);
+  font-size: 0.84rem;
+}
+
+.audit-table th,
+.audit-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.audit-table th {
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+}
+
+.audit-table tbody tr {
+  cursor: pointer;
+}
+
+.audit-table tbody tr:hover,
+.audit-table tbody tr:focus {
+  background: #f0f7f4;
+  outline: none;
+}
+
+.status-pill {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 3px 8px;
+  text-transform: uppercase;
+}
+
+.status-pill.success {
+  background: #e2f4ea;
+  color: #14633d;
+}
+
+.status-pill.failure {
+  background: #f7e4e7;
+  color: var(--danger-dark);
 }
 
 pre {
@@ -424,7 +537,8 @@ pre {
   .metrics-grid,
   .content-grid,
   .form-grid,
-  .money-row {
+  .money-row,
+  .audit-filter-grid {
     grid-template-columns: 1fr;
   }
 

@@ -8,11 +8,33 @@ export const ensureSchema = async (): Promise<void> => {
       display_name TEXT NOT NULL,
       base_currency_code CHAR(3) NOT NULL,
       password_hash TEXT NOT NULL,
+      is_admin BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       CONSTRAINT users_base_currency_code_format
         CHECK (base_currency_code ~ '^[A-Z]{3}$')
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS is_admin BOOLEAN;
+  `);
+
+  await pool.query(`
+    UPDATE users
+    SET is_admin = FALSE
+    WHERE is_admin IS NULL;
+  `);
+
+  await pool.query(`
+    ALTER TABLE users
+    ALTER COLUMN is_admin SET DEFAULT FALSE;
+  `);
+
+  await pool.query(`
+    ALTER TABLE users
+    ALTER COLUMN is_admin SET NOT NULL;
   `);
 
   await pool.query(`

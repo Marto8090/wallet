@@ -11,6 +11,7 @@ let state = {
 };
 
 let isCreateWalletFormOpen = false;
+let isAdminRedirectInProgress = false;
 
 const $ = (id) => document.getElementById(id);
 
@@ -179,6 +180,10 @@ const syncWalletFields = () => {
 };
 
 const updateView = () => {
+  if (isAdminRedirectInProgress) {
+    return;
+  }
+
   const isAuthenticated = Boolean(state.token);
 
   $("authView").classList.toggle("hidden", isAuthenticated);
@@ -208,6 +213,11 @@ const updateView = () => {
 const runAction = async (title, action) => {
   try {
     const result = await action();
+
+    if (isAdminRedirectInProgress) {
+      return;
+    }
+
     setOutput(title, result.status, result.body);
     saveState();
     updateView();
@@ -246,6 +256,17 @@ const storeAuthResult = (result) => {
   }
 
   return result;
+};
+
+const redirectAdminUser = () => {
+  if (state.token && state.user?.isAdmin) {
+    isAdminRedirectInProgress = true;
+    saveState();
+    window.location.replace("/audit.html");
+    return true;
+  }
+
+  return false;
 };
 
 const refreshWallets = async () => {
@@ -369,6 +390,11 @@ const checkHealth = async () => {
 const runAuthAction = async (title, action) => {
   try {
     const result = await action();
+
+    if (isAdminRedirectInProgress) {
+      return;
+    }
+
     setAuthOutput(title, result.status, result.body);
     saveState();
     updateView();
@@ -459,7 +485,7 @@ $("authLoginButton").addEventListener("click", () => {
   runAuthAction("Login", async () => {
     const result = storeAuthResult(await login());
 
-    if (result.ok) {
+    if (result.ok && !redirectAdminUser()) {
       await refreshWallets();
     }
 
@@ -471,7 +497,7 @@ $("authRegisterButton").addEventListener("click", () => {
   runAuthAction("Register", async () => {
     const result = storeAuthResult(await register());
 
-    if (result.ok) {
+    if (result.ok && !redirectAdminUser()) {
       await refreshWallets();
     }
 
@@ -480,10 +506,13 @@ $("authRegisterButton").addEventListener("click", () => {
 });
 
 loadState();
-updateView();
-checkHealth();
 
-if (state.token) {
+if (!redirectAdminUser()) {
+  updateView();
+  checkHealth();
+}
+
+if (state.token && !isAdminRedirectInProgress) {
   refreshWallets()
     .then(() => {
       saveState();

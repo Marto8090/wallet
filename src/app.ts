@@ -1,6 +1,7 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
+import adminRoutes from "./routes/admin.routes";
 import authRoutes from "./routes/auth.routes";
 import healthRoutes from "./routes/health.routes";
 import transferRoutes from "./routes/transfer.routes";
@@ -27,10 +28,20 @@ const moneyOperationLimiter = rateLimit({
   message: { error: "Too many wallet requests, try again later" },
 });
 
+const adminLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipRateLimit,
+  message: { error: "Too many admin requests, try again later" },
+});
+
 app.use(helmet());
 app.use(express.json({ limit: "100kb" }));
 app.use(express.static("public"));
 
+app.use("/admin", adminLimiter, adminRoutes);
 app.use("/auth", authLimiter, authRoutes);
 app.use("/health", healthRoutes);
 app.use("/transfers", moneyOperationLimiter, transferRoutes);

@@ -13,6 +13,7 @@ Stores registered application users.
 | `display_name` | `TEXT` | Required |
 | `base_currency_code` | `CHAR(3)` | Required, must match `^[A-Z]{3}$` |
 | `password_hash` | `TEXT` | Required |
+| `is_admin` | `BOOLEAN` | Required, defaults to `FALSE` |
 | `created_at` | `TIMESTAMPTZ` | Required, defaults to `NOW()` |
 | `updated_at` | `TIMESTAMPTZ` | Required, defaults to `NOW()` |
 
@@ -100,7 +101,13 @@ Stores internal audit events for security and money-related actions. Audit logs 
 | `metadata` | `JSONB` | Required, defaults to `{}` |
 | `created_at` | `TIMESTAMPTZ` | Required, defaults to `NOW()` |
 
-Audit logs must not store passwords, JWTs, or raw idempotency keys.
+Audit logs must not store passwords, JWTs, or raw idempotency keys. They can be viewed through the admin-only `GET /admin/audit-logs` endpoint with filters for event type, status, user, entity, date range, and search text.
+
+Retention:
+
+- `AUDIT_LOG_RETENTION_DAYS` controls how long audit logs are kept.
+- Expired audit logs are cleaned up on backend startup.
+- Admin users can manually trigger cleanup with `DELETE /admin/audit-logs/expired`.
 
 ## Relationships
 

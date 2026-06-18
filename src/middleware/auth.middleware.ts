@@ -1,6 +1,7 @@
 import { NextFunction, Response } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { env } from "../config/env";
+import { findUserById } from "../repositories/user.repository";
 import { AuthenticatedRequest } from "../types/auth";
 
 export const requireAuth = (
@@ -38,5 +39,71 @@ export const requireAuth = (
     next();
   } catch {
     res.status(401).json({ error: "Invalid or expired token" });
+  }
+};
+
+export const requireAdmin = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const userId = Number(req.user?.sub);
+
+  if (!Number.isSafeInteger(userId) || userId <= 0) {
+    res.status(401).json({ error: "Invalid or expired token" });
+    return;
+  }
+
+  try {
+    const user = await findUserById(userId);
+
+    if (!user) {
+      res.status(401).json({ error: "Invalid or expired token" });
+      return;
+    }
+
+    if (!user.is_admin) {
+      res.status(403).json({ error: "Admin access is required" });
+      return;
+    }
+
+    next();
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const requireNonAdmin = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const userId = Number(req.user?.sub);
+
+  if (!Number.isSafeInteger(userId) || userId <= 0) {
+    res.status(401).json({ error: "Invalid or expired token" });
+    return;
+  }
+
+  try {
+    const user = await findUserById(userId);
+
+    if (!user) {
+      res.status(401).json({ error: "Invalid or expired token" });
+      return;
+    }
+
+    if (user.is_admin) {
+      res
+        .status(403)
+        .json({ error: "Admin users cannot access wallet operations" });
+      return;
+    }
+
+    next();
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };

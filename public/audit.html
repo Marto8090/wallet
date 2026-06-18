@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Audit Logs | Ledger Wallet</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="auditView" class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">LW</div>
+          <div>
+            <h1>Ledger Wallet</h1>
+            <p>Admin audit logs</p>
+          </div>
+        </div>
+
+        <div class="session-panel">
+          <span class="label">Admin</span>
+          <strong id="auditSessionName">Not signed in</strong>
+          <span id="auditSessionEmail" class="muted">No active user</span>
+        </div>
+
+        <div class="api-panel">
+          <span class="label">API</span>
+          <strong id="auditApiStatus">Checking</strong>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="page-header">
+          <div>
+            <span class="label">Audit</span>
+            <h2>System Events</h2>
+          </div>
+          <div class="button-row compact-actions">
+            <button id="auditLogoutButton" class="secondary-button" type="button">
+              Clear session
+            </button>
+          </div>
+        </header>
+
+        <section class="metrics-grid" aria-label="Audit summary">
+          <div class="metric-card">
+            <span>Total matches</span>
+            <strong id="auditTotalMetric">0</strong>
+          </div>
+          <div class="metric-card">
+            <span>Shown</span>
+            <strong id="auditShownMetric">0</strong>
+          </div>
+          <div class="metric-card">
+            <span>Last refresh</span>
+            <strong id="auditRefreshMetric">Never</strong>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <span class="label">Filters</span>
+              <h3>Search audit logs</h3>
+            </div>
+            <div class="button-row compact-actions">
+              <button id="auditRefreshButton" type="button">Refresh</button>
+              <button id="auditResetFiltersButton" class="secondary-button" type="button">
+                Reset
+              </button>
+              <button id="auditCleanupButton" class="danger-button" type="button">
+                Clean expired
+              </button>
+            </div>
+          </div>
+
+          <div class="audit-filter-grid">
+            <label>
+              Event type
+              <input id="auditEventType" type="text" placeholder="auth.login.failure" />
+            </label>
+            <label>
+              Status
+              <select id="auditStatus">
+                <option value="">Any</option>
+                <option value="success">Success</option>
+                <option value="failure">Failure</option>
+              </select>
+            </label>
+            <label>
+              User ID
+              <input id="auditUserId" type="number" min="0" placeholder="1" />
+            </label>
+            <label>
+              Entity type
+              <input id="auditEntityType" type="text" placeholder="transfer" />
+            </label>
+            <label>
+              Search
+              <input id="auditSearch" type="text" placeholder="email, IBAN, reference" />
+            </label>
+            <label>
+              Limit
+              <select id="auditLimit">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel audit-table-panel">
+          <div class="panel-header">
+            <div>
+              <span class="label">Results</span>
+              <h3>Audit trail</h3>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="audit-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Event</th>
+                  <th>Status</th>
+                  <th>User</th>
+                  <th>Entity</th>
+                  <th>Metadata</th>
+                </tr>
+              </thead>
+              <tbody id="auditTableBody">
+                <tr>
+                  <td colspan="6">No audit logs loaded.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="pagination-row">
+            <button id="auditPreviousButton" class="secondary-button" type="button">
+              Previous
+            </button>
+            <span id="auditPageLabel">Page 1 of 1</span>
+            <button id="auditNextButton" class="secondary-button" type="button">
+              Next
+            </button>
+          </div>
+        </section>
+
+        <section class="panel response-panel">
+          <div class="panel-header">
+            <div>
+              <span class="label">Details</span>
+              <h3>Selected result</h3>
+            </div>
+            <button id="auditClearOutputButton" class="secondary-button" type="button">
+              Clear
+            </button>
+          </div>
+          <pre id="auditOutput">No audit request sent.</pre>
+        </section>
+      </main>
+    </div>
+
+    <script src="/audit.js"></script>
+  </body>
+</html>
